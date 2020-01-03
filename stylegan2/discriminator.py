@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-from commons.custom_layers import Dense, Conv2D, Bias, LeakyReLU, MinibatchStd
+from stylegan2.custom_layers import Dense, Conv2D, Bias, LeakyReLU, MinibatchStd
 
 
 class FromRGB(tf.keras.layers.Layer):
@@ -151,42 +151,25 @@ class Discriminator(tf.keras.Model):
 def main():
     batch_size = 4
     d_params_with_label = {
-        'labels_dim': 250,
-        'resolutions': [4, 8, 16, 32, 64, 128, 256],
-        'featuremaps': [512, 512, 512, 512, 256, 128, 64],
-    }
-
-    d_params_without_label = {
         'labels_dim': 0,
-        'resolutions': [4, 8, 16, 32, 64, 128, 256],
-        'featuremaps': [512, 512, 512, 512, 256, 128, 64],
+        'resolutions': [4, 8, 16, 32, 64, 128, 256, 512, 1024],
+        'featuremaps': [512, 512, 512, 512, 512, 256, 128, 64, 32],
     }
 
     input_res = d_params_with_label['resolutions'][-1]
     test_images = np.ones((batch_size, 3, input_res, input_res), dtype=np.float32)
     test_labels = np.ones((batch_size, d_params_with_label['labels_dim']), dtype=np.float32)
 
-    discriminator_with_label = Discriminator(d_params_with_label)
-    scores1_with_label = discriminator_with_label([test_images, test_labels], training=True)
-    scores2_with_label = discriminator_with_label([test_images, test_labels], training=False)
-    discriminator_with_label.summary()
+    discriminator = Discriminator(d_params_with_label)
+    scores1 = discriminator([test_images, test_labels], training=True)
+    scores2 = discriminator([test_images, test_labels], training=False)
+    discriminator.summary()
 
-    discriminator_without_label = Discriminator(d_params_without_label)
-    scores1_without_label = discriminator_without_label([test_images, None], training=True)
-    scores2_without_label = discriminator_without_label([test_images, None], training=False)
-    discriminator_without_label.summary()
-
-    print(scores1_with_label.shape)
-    print(scores2_with_label.shape)
-    print(scores1_without_label.shape)
-    print(scores2_without_label.shape)
+    print(scores1.shape)
+    print(scores2.shape)
 
     print()
-    for v in discriminator_with_label.variables:
-        print('{}: {}'.format(v.name, v.shape))
-
-    print()
-    for v in discriminator_without_label.variables:
+    for v in discriminator.variables:
         print('{}: {}'.format(v.name, v.shape))
 
     return

@@ -1,8 +1,8 @@
 import numpy as np
 import tensorflow as tf
 
-from commons.utils import lerp
-from commons.custom_layers import LabelEmbedding, Dense, Bias, LeakyReLU, Upscale2D, ModulatedConv2D, Noise
+from stylegan2.utils import lerp
+from stylegan2.custom_layers import LabelEmbedding, Dense, Bias, LeakyReLU, Upscale2D, ModulatedConv2D, Noise
 
 
 class ToRGB(tf.keras.layers.Layer):
@@ -24,18 +24,20 @@ class ToRGB(tf.keras.layers.Layer):
 
 
 class Mapping(tf.keras.layers.Layer):
-    def __init__(self, x_dim, w_dim, n_mapping, n_broadcast, **kwargs):
+    def __init__(self, z_dim, w_dim, labels_dim, n_mapping, n_broadcast, **kwargs):
         super(Mapping, self).__init__(**kwargs)
-        self.x_dim = x_dim
+        self.z_dim = z_dim
         self.w_dim = w_dim
+        self.labels_dim = labels_dim
         self.n_mapping = n_mapping
         self.n_broadcast = n_broadcast
         self.gain = 1.0
         self.lrmul = 0.01
 
-        self.x_embedding = LabelEmbedding(embed_dim=512, name='x_embedding')
+        if self.labels_dim > 0:
+            self.labels_embedding = LabelEmbedding(embed_dim=self.w_dim, name='labels_embedding')
 
-        self.norm = tf.keras.layers.Lambda(lambda x: x * tf.math.rsqrt(tf.reduce_mean(tf.square(x), axis=1, keepdims=True) + 1e-8))
+        self.normalize = tf.keras.layers.Lambda(lambda x: x * tf.math.rsqrt(tf.reduce_mean(tf.square(x), axis=1, keepdims=True) + 1e-8))
         self.broadcast = tf.keras.layers.Lambda(lambda x: tf.tile(x[:, np.newaxis], [1, self.n_broadcast, 1]))
 
         self.dense_layers = list()
@@ -47,11 +49,16 @@ class Mapping(tf.keras.layers.Layer):
             self.act_layers.append(LeakyReLU(name='lrelu_{:d}'.format(ii)))
 
     def call(self, inputs, training=None, mask=None):
-        # run through embedding layer once to encode onehot vector
-        x = self.x_embedding(inputs)
+        latents, labels = inputs
+        x = latents
+
+        # embed label if any
+        if self.labels_dim > 0:
+            y = self.labels_embedding(labels)
+            x = tf.concat([x, y], axis=1)
 
         # normalize inputs
-        x = self.norm(x)
+        x = self.normalize(x)
 
         # apply mapping blocks
         for dense, apply_bias, apply_act in zip(self.dense_layers, self.bias_layers, self.act_layers):
@@ -152,7 +159,7 @@ class Synthesis(tf.keras.layers.Layer):
         self.initial_block = SynthesisConstBlock(fmaps=n_f, res=res, name='{:d}x{:d}/const'.format(res, res))
         self.initial_torgb = ToRGB(in_channel=n_f, name='{:d}x{:d}/ToRGB'.format(res, res))
 
-        # stack generator block with lerp block
+        # stack synthesis block
         prev_n_f = n_f
         self.blocks = list()
         self.torgbs = list()
@@ -190,13 +197,13 @@ class Synthesis(tf.keras.layers.Layer):
         return images_out
 
 
-class Renderer(tf.keras.Model):
+class Generator(tf.keras.Model):
     def __init__(self, g_params, **kwargs):
-        super(Renderer, self).__init__(**kwargs)
+        super(Generator, self).__init__(**kwargs)
 
-        self.x_dim = g_params['x_dim']
+        self.z_dim = g_params['z_dim']
         self.w_dim = g_params['w_dim']
-        self.x_depth = g_params['x_depth']
+        self.labels_dim = g_params['labels_dim']
         self.n_mapping = g_params['n_mapping']
         self.resolutions = g_params['resolutions']
         self.featuremaps = g_params['featuremaps']
@@ -217,7 +224,7 @@ class Renderer(tf.keras.Model):
                 if index < self.truncation_cutoff:
                     self.truncation_coefs[:, index, :] = self.truncation_psi
 
-        self.g_mapping = Mapping(self.x_dim, self.w_dim, self.n_mapping, self.n_broadcast, name='g_mapping')
+        self.g_mapping = Mapping(self.z_dim, self.w_dim, self.labels_dim, self.n_mapping, self.n_broadcast, name='g_mapping')
         self.synthesis = Synthesis(self.w_dim, self.resolutions, self.featuremaps, name='g_synthesis')
 
     def build(self, input_shape):
@@ -257,19 +264,10 @@ class Renderer(tf.keras.Model):
         self.w_avg.assign(lerp(batch_avg, self.w_avg, self.w_ema_decay))
         return
 
-    def draw_random_x(self, x1):
-        batch_size = tf.shape(x1)[0]
-        new_x = list()
-        for depth in self.x_depth:
-            vals = tf.random.uniform(shape=[batch_size], minval=0, maxval=depth, dtype=tf.dtypes.int32)
-            onehot = tf.one_hot(vals, depth)
-            new_x.append(onehot)
-        return tf.concat(new_x, axis=1)
-
-    def style_mixing_regularization(self, x1, w_broadcasted1):
+    def style_mixing_regularization(self, latents1, labels, w_broadcasted1):
         # get another w and broadcast it
-        x2 = self.draw_random_x(x1)
-        w_broadcasted2 = self.g_mapping(x2)
+        latents2 = tf.random.normal(shape=tf.shape(latents1), dtype=tf.dtypes.float32)
+        w_broadcasted2 = self.g_mapping([latents2, labels])
 
         # find mixing limit index
         if tf.random.uniform([], 0.0, 1.0) < self.style_mixing_prob:
@@ -289,12 +287,13 @@ class Renderer(tf.keras.Model):
         return truncated_w_broadcasted
 
     def call(self, inputs, training=None, mask=None):
-        x = inputs
-        w_broadcasted = self.g_mapping(x)
+        latents, labels = inputs
+
+        w_broadcasted = self.g_mapping([latents, labels])
 
         if training:
             self.update_moving_average_of_w(w_broadcasted)
-            w_broadcasted = self.style_mixing_regularization(x, w_broadcasted)
+            w_broadcasted = self.style_mixing_regularization(latents, labels, w_broadcasted)
 
         if not training:
             w_broadcasted = self.truncation_trick(w_broadcasted)
@@ -306,41 +305,30 @@ class Renderer(tf.keras.Model):
 def main():
     batch_size = 4
     g_params_with_label = {
-        'x_dim': 250,
+        'z_dim': 512,
         'w_dim': 512,
-        'x_depth': [48, 11, 5, 11, 8, 2, 7, 9, 7, 8, 5, 3, 2, 3, 3, 2, 2, 5, 5, 5, 5, 4, 3, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 3, 5, 5, 3, 3, 3, 5, 5, 5],
+        'labels_dim': 0,
         'n_mapping': 8,
-        'resolutions': [4, 8, 16, 32, 64, 128, 256],
-        'featuremaps': [512, 512, 512, 512, 512, 256, 128],
+        'resolutions': [4, 8, 16, 32, 64, 128, 256, 512, 1024],
+        'featuremaps': [512, 512, 512, 512, 512, 256, 128, 64, 32],
         'w_ema_decay': 0.995,
         'style_mixing_prob': 0.9,
         'truncation_psi': 0.5,
         'truncation_cutoff': None,
     }
 
-    # # new_x = list()
-    # # for depth in g_params_with_label['x_depth']:
-    # #     val = np.random.randint(0, depth)
-    # #     onehot = np.eye(depth, dtype=np.float32)[val]
-    # #     new_x.extend(onehot.tolist())
-    # new_x = list()
-    # for depth in g_params_with_label['x_depth']:
-    #     vals = tf.random.uniform(shape=[batch_size], minval=0, maxval=depth, dtype=tf.dtypes.int32)
-    #     onehot = tf.one_hot(vals, depth)
-    #     new_x.append(onehot)
-    # new_x = tf.concat(new_x, axis=1)
+    test_z = np.ones((batch_size, g_params_with_label['z_dim']), dtype=np.float32)
+    test_y = np.ones((batch_size, g_params_with_label['labels_dim']), dtype=np.float32)
 
-    test_x = np.ones((batch_size, g_params_with_label['x_dim']), dtype=np.float32)
-
-    renderer = Renderer(g_params_with_label)
-    fake_images1 = renderer(test_x, training=True)
-    fake_images2 = renderer(test_x, training=False)
-    renderer.summary()
+    generator = Generator(g_params_with_label)
+    fake_images1 = generator([test_z, test_y], training=True)
+    fake_images2 = generator([test_z, test_y], training=False)
+    generator.summary()
 
     print(fake_images1.shape)
 
     print()
-    for v in renderer.variables:
+    for v in generator.variables:
         print('{}: {}'.format(v.name, v.shape))
     return
 
