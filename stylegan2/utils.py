@@ -2,64 +2,6 @@ import numpy as np
 import tensorflow as tf
 
 
-def print_model_details(model):
-    model.summary()
-
-    print('Trainable variables: {}'.format(model.name))
-    for v in model.trainable_variables:
-        print('\t{}: {}'.format(v.name, v.shape))
-
-    print('None-trainable variables: {}'.format(model.name))
-    for v in model.non_trainable_variables:
-        print('\t{}: {}'.format(v.name, v.shape))
-    return
-
-
-def check_weight_name_and_shape(prev, curr):
-    def filter_name(name):
-        name_components = name.split('/')
-        name_components = [s.split('_')[0] for s in name_components]
-        return '/'.join(name_components)
-
-    print('{} -> {}'.format(prev.name, curr.name))
-    for prev_w, curr_w in zip(prev.weights, curr.weights):
-        assert filter_name(prev_w.name) == filter_name(curr_w.name)
-        assert prev_w.shape == curr_w.shape
-        print('{} {} -> {} {}'.format(prev_w.name, prev_w.shape, curr_w.name, curr_w.shape))
-    print()
-    return
-
-
-def compute_training_image_counts(train_start_res, resolutions, do_transition_res,
-                                  train_trans_images_per_res, train_fixed_images_per_res, train_total_n_images):
-    cur_image_count = 0
-    train_n_images = dict()
-    for res, do_transition in do_transition_res.items():
-        if res < train_start_res:
-            n_trans = 0
-            n_fixed = 0
-        else:
-            if res != resolutions[-1]:
-                n_trans = train_trans_images_per_res if do_transition else 0
-                n_fixed = train_fixed_images_per_res
-            else:
-                n_trans = train_trans_images_per_res if do_transition else 0
-                n_fixed = train_total_n_images - (cur_image_count + n_trans)
-
-        train_n_images[res] = {
-            'trans': n_trans,
-            'fixed': n_fixed,
-            # 'total': n_trans + n_fixed
-        }
-
-        # update
-        cur_image_count = cur_image_count + train_n_images[res]['trans'] + train_n_images[res]['fixed']
-
-    double_check = [v['trans'] + v['fixed'] for k, v in train_n_images.items()]
-    assert sum(double_check) == train_total_n_images
-    return train_n_images
-
-
 def lerp(a, b, t):
     out = a + (b - a) * t
     return out

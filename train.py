@@ -1,15 +1,14 @@
 import os
-import glob
 import time
 import argparse
 import numpy as np
 import tensorflow as tf
 
 
-from datasets.dataset_kun_f_42params_20000_tfrecord import input_fn
-from commons.utils import preprocess_fit_train_image, postprocess_images, merge_batch_images
-from network_v21.renderer import Renderer
-from network_v21.discriminator import Discriminator
+from dataset_ffhq import get_ffhq_dataset
+from stylegan2.utils import preprocess_fit_train_image, postprocess_images, merge_batch_images
+from stylegan2.generator import Generator
+from stylegan2.discriminator import Discriminator
 
 
 class Trainer(object):
@@ -27,21 +26,20 @@ class Trainer(object):
         self.r1_gamma = 10.0
         self.r2_gamma = 0.0
         self.max_steps = int(np.ceil(self.n_total_image / self.batch_size))
-        self.reached_max_steps = False
         self.out_res = self.g_params['resolutions'][-1]
         self.log_template = 'step {}: elapsed: {:.2f}s, d_loss: {:.3f}, g_loss: {:.3f}, r1_penalty: {:.3f}'
         self.print_step = 10
         self.save_step = 100
         self.image_summary_step = 100
+        self.reached_max_steps = False
 
         # grab dataset
         print('Setting datasets')
-        self.train_ds, self.val_ds = self.get_dataset(self.out_res, self.batch_size, self.n_samples)
-        self.val_ds_iter = iter(self.val_ds)
+        self.dataset = get_ffhq_dataset(self.tfrecord_dir, self.out_res, self.batch_size, epochs=None)
 
         # create models
         print('Create models')
-        self.renderer = Renderer(self.g_params)
+        self.generator = Generator(self.g_params)
         self.discriminator = Discriminator(self.d_params)
         self.d_optimizer = tf.keras.optimizers.Adam(self.d_opt['learning_rate'],
                                                     beta_1=self.d_opt['beta1'],
@@ -51,25 +49,25 @@ class Trainer(object):
                                                     beta_1=self.g_opt['beta1'],
                                                     beta_2=self.g_opt['beta2'],
                                                     epsilon=self.g_opt['epsilon'])
-        self.r_clone = Renderer(self.g_params)
+        self.g_clone = Generator(self.g_params)
 
         # finalize model (build)
-        test_x = np.ones((1, self.g_params['x_dim']), dtype=np.float32)
-        test_labels = np.ones((1, self.g_params['x_dim']), dtype=np.float32)
+        test_latent = np.ones((1, self.g_params['z_dim']), dtype=np.float32)
+        test_labels = np.ones((1, self.g_params['labels_dim']), dtype=np.float32)
         test_images = np.ones((1, 3, self.out_res, self.out_res), dtype=np.float32)
-        _ = self.renderer(test_x, training=False)
+        _ = self.generator([test_latent, test_labels], training=False)
         _ = self.discriminator([test_images, test_labels], training=False)
-        _ = self.r_clone(test_x, training=False)
+        _ = self.g_clone([test_latent, test_labels], training=False)
         print('Copying g_clone')
-        self.r_clone.set_weights(self.renderer.get_weights())
+        self.g_clone.set_weights(self.generator.get_weights())
 
         # setup saving locations (object based savings)
         self.ckpt_dir = os.path.join(self.model_base_dir, name)
         self.ckpt = tf.train.Checkpoint(d_optimizer=self.d_optimizer,
                                         g_optimizer=self.g_optimizer,
                                         discriminator=self.discriminator,
-                                        renderer=self.renderer,
-                                        r_clone=self.r_clone)
+                                        generator=self.generator,
+                                        g_clone=self.g_clone)
         self.manager = tf.train.CheckpointManager(self.ckpt, self.ckpt_dir, max_to_keep=2)
 
         # try to restore
@@ -86,29 +84,13 @@ class Trainer(object):
         else:
             print('Not restoring from saved checkpoint')
 
-    def get_dataset(self, res, batch_size, n_samples):
-        # get dataset
-        filenames = glob.glob(os.path.join(self.tfrecord_dir, '*.tfrecord'))
-        filenames = sorted(filenames)
-        n_train_tfrecord_files = len(filenames) - 1
-        train_filenames = filenames[:n_train_tfrecord_files]
-        val_filenames = [filenames[-1]]
-
-        label_min_max = np.load(os.path.join(self.tfrecord_dir, 'label_min_max.npy'))
-        label_max = label_min_max[1, :].tolist()
-        label_depth = [x + 1 for x in label_max]
-
-        train_ds = input_fn(train_filenames, res, label_depth, batch_size=batch_size, epochs=None)
-        val_ds = input_fn(val_filenames, res, label_depth, batch_size=n_samples, epochs=None)
-        return train_ds, val_ds
-
     @tf.function
-    def d_train_step(self, x, real_images):
+    def d_train_step(self, z, real_images, labels):
         with tf.GradientTape() as d_tape:
             # forward pass
-            fake_images = self.renderer(x, training=True)
-            real_scores = self.discriminator([real_images, x], training=True)
-            fake_scores = self.discriminator([fake_images, x], training=True)
+            fake_images = self.generator([z, labels], training=True)
+            real_scores = self.discriminator([real_images, labels], training=True)
+            fake_scores = self.discriminator([fake_images, labels], training=True)
 
             # gan loss
             d_loss = tf.math.softplus(fake_scores)
@@ -117,7 +99,7 @@ class Trainer(object):
             # simple GP
             with tf.GradientTape() as p_tape:
                 p_tape.watch(real_images)
-                real_loss = tf.reduce_sum(self.discriminator([real_images, x], training=True))
+                real_loss = tf.reduce_sum(self.discriminator([real_images, labels], training=True))
 
             real_grads = p_tape.gradient(real_loss, real_images)
             r1_penalty = tf.reduce_sum(tf.math.square(real_grads), axis=[1, 2, 3])
@@ -132,18 +114,18 @@ class Trainer(object):
         return d_loss, tf.reduce_mean(r1_penalty)
 
     @tf.function
-    def g_train_step(self, x):
+    def g_train_step(self, z, labels):
         with tf.GradientTape() as g_tape:
             # forward pass
-            fake_images = self.renderer(x, training=True)
-            fake_scores = self.discriminator([fake_images, x], training=True)
+            fake_images = self.generator([z, labels], training=True)
+            fake_scores = self.discriminator([fake_images, labels], training=True)
 
             # gan loss
             g_loss = tf.math.softplus(-fake_scores)
             g_loss = tf.reduce_mean(g_loss)
 
-        g_gradients = g_tape.gradient(g_loss, self.renderer.trainable_variables)
-        self.g_optimizer.apply_gradients(zip(g_gradients, self.renderer.trainable_variables))
+        g_gradients = g_tape.gradient(g_loss, self.generator.trainable_variables)
+        self.g_optimizer.apply_gradients(zip(g_gradients, self.generator.trainable_variables))
         return g_loss
 
     def train(self):
@@ -165,14 +147,16 @@ class Trainer(object):
         print('max_steps: {}'.format(self.max_steps))
         t_start = time.time()
 
-        for real_images, x in self.train_ds:
+        for real_images in self.dataset:
             # preprocess inputs
+            z = tf.random.normal(shape=[tf.shape(real_images)[0], self.g_params['z_dim']], dtype=tf.dtypes.float32)
             real_images = preprocess_fit_train_image(real_images, self.out_res)
+            labels = tf.ones((tf.shape(real_images)[0], self.g_params['labels_dim']), dtype=tf.dtypes.float32)
 
             # train step
-            d_loss, r1_penalty = self.d_train_step(x, real_images)
-            self.r_clone.set_as_moving_average_of(self.renderer)
-            g_loss = self.g_train_step(x)
+            d_loss, r1_penalty = self.d_train_step(z, real_images, labels)
+            self.g_clone.set_as_moving_average_of(self.generator)
+            g_loss = self.g_train_step(z, labels)
 
             # update metrics
             metric_d_loss(d_loss)
@@ -187,15 +171,7 @@ class Trainer(object):
                 tf.summary.scalar('g_loss', metric_g_loss.result(), step=step)
                 tf.summary.scalar('d_loss', metric_d_loss.result(), step=step)
                 tf.summary.scalar('r1_penalty', metric_r1_pen.result(), step=step)
-                tf.summary.histogram('w_avg', self.renderer.w_avg, step=step)
-
-            # print every self.print_steps
-            if step % self.print_step == 0:
-                elapsed = time.time() - t_start
-                print(self.log_template.format(step, elapsed, d_loss.numpy(), g_loss.numpy(), r1_penalty.numpy()))
-
-                # reset timer
-                t_start = time.time()
+                tf.summary.histogram('w_avg', self.generator.w_avg, step=step)
 
             # save every self.save_step
             if step % self.save_step == 0:
@@ -204,14 +180,19 @@ class Trainer(object):
             # save every self.image_summary_step
             if step % self.image_summary_step == 0:
                 # add summary image
-                sample_images = self.sample_image(x, real_images)
+                real_images_cropped, sample_fake_images_eval, sample_fake_images_clone = self.sample_image(real_images)
                 with train_summary_writer.as_default():
-                    tf.summary.image('train_real_images', sample_images['train']['real'], step=step)
-                    tf.summary.image('train_fake_images_eval', sample_images['train']['fake_eval'], step=step)
-                    tf.summary.image('train_fake_images_clone', sample_images['train']['fake_clone'], step=step)
-                    tf.summary.image('val_real_images', sample_images['val']['real'], step=step)
-                    tf.summary.image('val_fake_images_eval', sample_images['val']['fake_eval'], step=step)
-                    tf.summary.image('val_fake_images_clone', sample_images['val']['fake_clone'], step=step)
+                    tf.summary.image('real_images', real_images_cropped, step=step)
+                    tf.summary.image('fake_images_eval', sample_fake_images_eval, step=step)
+                    tf.summary.image('fake_images_clone', sample_fake_images_clone, step=step)
+
+            # print every self.print_steps
+            if step % self.print_step == 0:
+                elapsed = time.time() - t_start
+                print(self.log_template.format(step, elapsed, d_loss.numpy(), g_loss.numpy(), r1_penalty.numpy()))
+
+                # reset timer
+                t_start = time.time()
 
             # check exit status
             if step >= self.max_steps:
@@ -226,7 +207,7 @@ class Trainer(object):
         self.manager.save(checkpoint_number=step)
         return
 
-    def sample_image(self, train_x, train_real_images):
+    def sample_image(self, real_images):
         def finalize_image(img, res, n_samples):
             img = postprocess_images(img)
             img = img.numpy()
@@ -234,72 +215,54 @@ class Trainer(object):
             img = np.expand_dims(img, axis=0)
             return img
 
-        def finalize_image2(img, res, n_samples):
-            img = tf.transpose(img, [0, 2, 3, 1])
-            img = tf.cast(img, dtype=tf.dtypes.uint8)
-            img = img.numpy()
-            img = merge_batch_images(img, res, rows=1, cols=n_samples)
-            img = np.expand_dims(img, axis=0)
-            return img
+        real_images_cropped = real_images[:self.n_samples, :, :, :]
+        sample_z = tf.random.normal(shape=(self.n_samples, self.g_params['z_dim']), dtype=tf.dtypes.float32)
+        sample_labels = tf.ones((self.n_samples, self.g_params['labels_dim']), dtype=tf.dtypes.float32)
+        fake_images_eval = self.generator([sample_z, sample_labels], training=False)
+        fake_images_clone = self.g_clone([sample_z, sample_labels], training=False)
+        real_images_cropped = finalize_image(real_images_cropped, self.out_res, self.n_samples)
+        fake_images_eval = finalize_image(fake_images_eval, self.out_res, self.n_samples)
+        fake_images_clone = finalize_image(fake_images_clone, self.out_res, self.n_samples)
 
-        # deal with real images
-        train_real_images_cropped = train_real_images[:self.n_samples, :, :, :]
-        train_x_cropped = train_x[:self.n_samples, :]
+        return real_images_cropped, fake_images_eval, fake_images_clone
 
-        # grab validation sample real images too
-        val_real_images_cropped, val_x_cropped = next(self.val_ds_iter)
 
-        # run networks
-        train_fake_images_eval = self.renderer(train_x_cropped, training=False)
-        train_fake_images_clone = self.r_clone(train_x_cropped, training=False)
-        val_fake_images_eval = self.renderer(val_x_cropped, training=False)
-        val_fake_images_clone = self.r_clone(val_x_cropped, training=False)
-
-        # convert to numpy image array
-        t_real_img = finalize_image(train_real_images_cropped, self.out_res, self.n_samples)
-        t_fake_img_eval = finalize_image(train_fake_images_eval, self.out_res, self.n_samples)
-        t_fake_img_clone = finalize_image(train_fake_images_clone, self.out_res, self.n_samples)
-        v_real_img = finalize_image2(val_real_images_cropped, self.out_res, self.n_samples)
-        v_fake_img_eval = finalize_image(val_fake_images_eval, self.out_res, self.n_samples)
-        v_fake_img_clone = finalize_image(val_fake_images_clone, self.out_res, self.n_samples)
-
-        return {
-            'train': {'real': t_real_img, 'fake_eval': t_fake_img_eval, 'fake_clone': t_fake_img_clone},
-            'val': {'real': v_real_img, 'fake_eval': v_fake_img_eval, 'fake_clone': v_fake_img_clone},
-        }
+def filter_resolutions_featuremaps(resolutions, featuremaps, res):
+    index = resolutions.index(res)
+    filtered_resolutions = resolutions[:index + 1]
+    filtered_featuremaps = featuremaps[:index + 1]
+    return filtered_resolutions, filtered_featuremaps
 
 
 def main():
     # global program arguments parser
     parser = argparse.ArgumentParser(description='')
-    parser.add_argument('--model_base_dir', default='../models', type=str)
-    parser.add_argument('--tfrecord_dir', default='/mnt/my_data/image_data/b&s_face/kun_f_42params_20000/tfrecords', type=str)
+    parser.add_argument('--model_base_dir', default='./models', type=str)
+    parser.add_argument('--tfrecord_dir', default='/home/mookyung/git-repos/stylegan-reproduced/datasets/ffhq/tfrecords', type=str)
+    parser.add_argument('--train_res', default=128, type=int)
     args = vars(parser.parse_args())
 
-    label_min_max = np.load(os.path.join(args['tfrecord_dir'], 'label_min_max.npy'))
-    label_max = label_min_max[1, :].tolist()
-    label_depth = [x + 1 for x in label_max]
-
     # network params
-    x_dim = 250
-    resolutions = [4, 8, 16, 32, 64, 128, 256]
-    featuremaps = [512, 512, 512, 512, 512, 256, 128]
+    train_res = args['train_res']
+    resolutions = [  4,   8,  16,  32,  64, 128, 256, 512, 1024]
+    featuremaps = [512, 512, 512, 512, 512, 256, 128,  64,   32]
+    train_resolutions, train_featuremaps = filter_resolutions_featuremaps(resolutions, featuremaps, train_res)
     g_params = {
-        'x_dim': x_dim,
+        'z_dim': 512,
         'w_dim': 512,
-        'x_depth': label_depth,
+        'labels_dim': 0,
         'n_mapping': 8,
-        'resolutions': resolutions,
-        'featuremaps': featuremaps,
+        'resolutions': train_resolutions,
+        'featuremaps': train_featuremaps,
         'w_ema_decay': 0.995,
         'style_mixing_prob': 0.9,
         'truncation_psi': 0.5,
         'truncation_cutoff': None,
     }
     d_params = {
-        'labels_dim': x_dim,
-        'resolutions': resolutions,
-        'featuremaps': featuremaps,
+        'labels_dim': 0,
+        'resolutions': train_resolutions,
+        'featuremaps': train_featuremaps,
     }
 
     # training parameters
@@ -316,10 +279,10 @@ def main():
         'd_opt': {'learning_rate': 0.002, 'beta1': 0.0, 'beta2': 0.99, 'epsilon': 1e-08},
         'batch_size': 4,
         'n_total_image': 25000000,
-        'n_samples': 2,
+        'n_samples': 4,
     }
 
-    trainer = Trainer(training_parameters, name='network_v21')
+    trainer = Trainer(training_parameters, name='stylegan2-ffhq')
     trainer.train()
     return
 
