@@ -209,20 +209,9 @@ class Generator(tf.keras.Model):
         self.featuremaps = g_params['featuremaps']
         self.w_ema_decay = g_params['w_ema_decay']
         self.style_mixing_prob = g_params['style_mixing_prob']
-        self.truncation_psi = g_params['truncation_psi']
-        self.truncation_cutoff = g_params['truncation_cutoff']
 
         self.n_broadcast = len(self.resolutions) * 2
-
         self.mixing_layer_indices = np.arange(self.n_broadcast)[np.newaxis, :, np.newaxis]
-        ones = np.ones_like(self.mixing_layer_indices, dtype=np.float32)
-        if self.truncation_cutoff is None:
-            self.truncation_coefs = ones * self.truncation_psi
-        else:
-            self.truncation_coefs = ones
-            for index in range(self.n_broadcast):
-                if index < self.truncation_cutoff:
-                    self.truncation_coefs[:, index, :] = self.truncation_psi
 
         self.g_mapping = Mapping(self.z_dim, self.w_dim, self.labels_dim, self.n_mapping, self.n_broadcast, name='g_mapping')
         self.synthesis = Synthesis(self.w_dim, self.resolutions, self.featuremaps, name='g_synthesis')
@@ -282,11 +271,20 @@ class Generator(tf.keras.Model):
             y=w_broadcasted2)
         return mixed_w_broadcasted
 
-    def truncation_trick(self, w_broadcasted):
-        truncated_w_broadcasted = lerp(self.w_avg, w_broadcasted, self.truncation_coefs)
+    def truncation_trick(self, w_broadcasted, truncation_cutoff, truncation_psi):
+        ones = np.ones_like(self.mixing_layer_indices, dtype=np.float32)
+        if truncation_cutoff is None:
+            truncation_coefs = ones * truncation_psi
+        else:
+            truncation_coefs = ones
+            for index in range(self.n_broadcast):
+                if index < truncation_cutoff:
+                    truncation_coefs[:, index, :] = truncation_psi
+
+        truncated_w_broadcasted = lerp(self.w_avg, w_broadcasted, truncation_coefs)
         return truncated_w_broadcasted
 
-    def call(self, inputs, training=None, mask=None):
+    def call(self, inputs, truncation_cutoff=None, truncation_psi=1.0, training=None, mask=None):
         latents, labels = inputs
 
         w_broadcasted = self.g_mapping([latents, labels])
@@ -296,7 +294,7 @@ class Generator(tf.keras.Model):
             w_broadcasted = self.style_mixing_regularization(latents, labels, w_broadcasted)
 
         if not training:
-            w_broadcasted = self.truncation_trick(w_broadcasted)
+            w_broadcasted = self.truncation_trick(w_broadcasted, truncation_cutoff, truncation_psi)
 
         image_out = self.synthesis(w_broadcasted)
         return image_out
