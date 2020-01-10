@@ -15,7 +15,9 @@ services:
     command: ["python", "-u", "train.py",
               "--model_base_dir", "/model-dir",
               "--tfrecord_dir", "/tfrecord-dir",
-              "--train_res", "1024"
+              "--train_res", "1024",
+              "--shuffle_buffer_size", "5000",
+              "--batch_size", "4"
     ]
   watching:
     image: moono/tf-2.0

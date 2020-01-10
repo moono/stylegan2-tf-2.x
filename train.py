@@ -252,6 +252,7 @@ def main():
     parser.add_argument('--tfrecord_dir', default='/mnt/vision-nas/data-sets/stylegan/ffhq-dataset/tfrecords/ffhq', type=str)
     parser.add_argument('--train_res', default=256, type=int)
     parser.add_argument('--shuffle_buffer_size', default=1000, type=int)
+    parser.add_argument('--batch_size', default=4, type=int)
     args = vars(parser.parse_args())
 
     # network params
@@ -287,7 +288,7 @@ def main():
         # training params
         'g_opt': {'learning_rate': 0.002, 'beta1': 0.0, 'beta2': 0.99, 'epsilon': 1e-08},
         'd_opt': {'learning_rate': 0.002, 'beta1': 0.0, 'beta2': 0.99, 'epsilon': 1e-08},
-        'batch_size': 4,
+        'batch_size': args['batch_size'],
         'n_total_image': 25000000,
         'n_samples': 4,
     }
