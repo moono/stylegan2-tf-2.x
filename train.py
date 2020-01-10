@@ -15,6 +15,7 @@ class Trainer(object):
     def __init__(self, t_params, name):
         self.model_base_dir = t_params['model_base_dir']
         self.tfrecord_dir = t_params['tfrecord_dir']
+        self.shuffle_buffer_size = t_params['shuffle_buffer_size']
         self.g_params = t_params['g_params']
         self.d_params = t_params['d_params']
         self.g_opt = t_params['g_opt']
@@ -35,7 +36,8 @@ class Trainer(object):
 
         # grab dataset
         print('Setting datasets')
-        self.dataset = get_ffhq_dataset(self.tfrecord_dir, self.out_res, self.batch_size, epochs=None)
+        self.dataset = get_ffhq_dataset(self.tfrecord_dir, self.out_res, self.shuffle_buffer_size,
+                                        self.batch_size, epochs=None)
 
         # create models
         print('Create models')
@@ -217,14 +219,21 @@ class Trainer(object):
         fake_images_07 = self.g_clone([latents, dummy_labels], truncation_psi=0.7, training=False)
         fake_images_10 = self.g_clone([latents, dummy_labels], truncation_psi=1.0, training=False)
 
-        # merge on batch dimension
+        # merge on batch dimension: [5 * n_samples, 3, out_res, out_res]
         out = tf.concat([reals, fake_images_00, fake_images_05, fake_images_07, fake_images_10], axis=0)
 
-        # prepare for image saving
+        # prepare for image saving: [5 * n_samples, out_res, out_res, 3]
         out = postprocess_images(out)
 
-        # make single image and add batch dimension for tensorboard
-        out = merge_batch_images(out, self.out_res, rows=5, cols=self.n_samples)
+        # resize to save disk spaces: [5 * n_samples, size, size, 3]
+        if self.out_res > 256:
+            size = 256
+        else:
+            size = self.out_res
+        out = tf.image.resize(out, size=[size, size])
+
+        # make single image and add batch dimension for tensorboard: [1, 5 * size, n_samples * size, 3]
+        out = merge_batch_images(out, size, rows=5, cols=self.n_samples)
         out = np.expand_dims(out, axis=0)
         return out
 
@@ -242,6 +251,7 @@ def main():
     parser.add_argument('--model_base_dir', default='./models', type=str)
     parser.add_argument('--tfrecord_dir', default='/mnt/vision-nas/data-sets/stylegan/ffhq-dataset/tfrecords/ffhq', type=str)
     parser.add_argument('--train_res', default=256, type=int)
+    parser.add_argument('--shuffle_buffer_size', default=1000, type=int)
     args = vars(parser.parse_args())
 
     # network params
