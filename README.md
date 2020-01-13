@@ -7,8 +7,8 @@
 | weight modulation / demodulation | :heavy_check_mark: |
 | skip architecture | :heavy_check_mark: |
 | resnet architecture | :heavy_check_mark: |
-| Path regularization | :white_check_mark: |
-| Lazy regularization | :white_check_mark: |
-| Fast optimized bias / activation / bilinear filtering (cuda compiled code) | :white_check_mark: |
+| Path regularization | - |
+| Lazy regularization | - |
+| Fast optimized bias / activation / bilinear filtering (cuda compiled code) | - |
 | Single GPU training |:heavy_check_mark: |
-| Multi GPU distributed training |:white_check_mark: |
+| Multi GPU distributed training |- |
