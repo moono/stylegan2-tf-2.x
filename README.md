@@ -4,10 +4,11 @@
 ## To do list
 | Items | Impleneted |
 | :--- |  :---: |
-| weight modulation / demodulation | - [x] |
-| skip architecture | - [x] |
-| resnet architecture | - [x] |
-| Path regularization | - [ ] |
-| Lazy regularization | - [ ] |
-| Fast optimized bias / activation / bilinear filtering (cuda compiled code) | - [ ] |
-| Multi GPU distributed training |- [ ] |
+| weight modulation / demodulation | :heavy_check_mark: |
+| skip architecture | :heavy_check_mark: |
+| resnet architecture | :heavy_check_mark: |
+| Path regularization | :white_check_mark: |
+| Lazy regularization | :white_check_mark: |
+| Fast optimized bias / activation / bilinear filtering (cuda compiled code) | :white_check_mark: |
+| Single GPU training |:heavy_check_mark: |
+| Multi GPU distributed training |:white_check_mark: |
