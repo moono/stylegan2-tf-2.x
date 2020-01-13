@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-from stylegan2.image_proc import blur2d
+from stylegan2.upfirdn_2d import setup_resample_kernel, upsample_conv_2d, conv_downsample_2d
 
 
 def compute_runtime_coef(weight_shape, gain, lrmul):
@@ -34,39 +34,6 @@ class Dense(tf.keras.layers.Layer):
         weight = self.runtime_coef * self.w
         x = tf.keras.layers.Flatten()(inputs)
         x = tf.matmul(x, weight)
-        return x
-
-
-class Conv2D(tf.keras.layers.Layer):
-    def __init__(self, is_down, fmaps, kernel, gain, lrmul, **kwargs):
-        super(Conv2D, self).__init__(**kwargs)
-        self.is_down = is_down
-        self.fmaps = fmaps
-        self.kernel = kernel
-        self.gain = gain
-        self.lrmul = lrmul
-
-        if self.is_down:
-            self.downscale2d = Downscale2D()
-        else:
-            self.downscale2d = tf.keras.layers.Lambda(lambda x: tf.identity(x))
-
-    def build(self, input_shape):
-        assert len(input_shape) == 4
-        weight_shape = [self.kernel, self.kernel, input_shape[1], self.fmaps]
-        init_std, runtime_coef = compute_runtime_coef(weight_shape, self.gain, self.lrmul)
-
-        self.runtime_coef = runtime_coef
-
-        # [kernel, kernel, fmaps_in, fmaps_out]
-        w_init = tf.random_normal_initializer(mean=0.0, stddev=init_std)
-        self.w = tf.Variable(initial_value=w_init(shape=weight_shape, dtype='float32'), trainable=True, name='w')
-
-    def call(self, inputs, training=None, mask=None):
-        w = self.runtime_coef * self.w
-
-        x = self.downscale2d(inputs)
-        x = tf.nn.conv2d(x, w, strides=[1, 1, 1, 1], padding='SAME', data_format='NCHW')
         return x
 
 
@@ -121,116 +88,6 @@ class LabelEmbedding(tf.keras.layers.Layer):
         return x
 
 
-class Upscale2D(tf.keras.layers.Layer):
-    def __init__(self, **kwargs):
-        super(Upscale2D, self).__init__(**kwargs)
-
-        self.resize = tf.keras.layers.UpSampling2D(size=(2, 2), data_format='channels_first', interpolation='bilinear')
-        self.blur = tf.keras.layers.Lambda(lambda x: blur2d(x, [1, 2, 1]))
-
-    def call(self, inputs, training=None, mask=None):
-        x = self.resize(inputs)
-        x = self.blur(x)
-        return x
-
-
-class Downscale2D(tf.keras.layers.Layer):
-    def __init__(self, **kwargs):
-        super(Downscale2D, self).__init__(**kwargs)
-
-        self.blur = tf.keras.layers.Lambda(lambda x: blur2d(x, [1, 2, 1]))
-        self.resize = tf.keras.layers.AveragePooling2D((2, 2), strides=None, padding='same',
-                                                       data_format='channels_first')
-
-    def call(self, inputs, training=None, mask=None):
-        x = self.blur(inputs)
-        x = self.resize(x)
-        return x
-
-
-class ModulatedConv2D(tf.keras.layers.Layer):
-    def __init__(self, is_up, do_demod, in_channel, fmaps, kernel, gain, lrmul, **kwargs):
-        super(ModulatedConv2D, self).__init__(**kwargs)
-        self.is_up = is_up
-        self.do_demod = do_demod
-        self.in_channel = in_channel
-        self.fmaps = fmaps
-        self.kernel = kernel
-        self.gain = gain
-        self.lrmul = lrmul
-
-        self.mod_dense = Dense(self.in_channel, gain, lrmul, name='mod_dense')
-        self.mod_bias = Bias(lrmul, name='mod_bias')
-        self.demod_scale = tf.keras.layers.Lambda(lambda x: tf.math.rsqrt(tf.reduce_sum(tf.square(x), axis=[1, 2, 3]) + 1e-8))
-        if self.is_up:
-            self.upscale2d = Upscale2D()
-        else:
-            self.upscale2d = tf.keras.layers.Lambda(lambda x: tf.identity(x))
-
-    def build(self, input_shape):
-        x_shape, w_shape = input_shape[0], input_shape[1]
-        weight_shape = [self.kernel, self.kernel, x_shape[1], self.fmaps]
-        init_std, runtime_coef = compute_runtime_coef(weight_shape, self.gain, self.lrmul)
-
-        self.runtime_coef = runtime_coef
-
-        w_init = tf.random.normal(shape=weight_shape, mean=0.0, stddev=init_std)
-        self.w = tf.Variable(w_init, name='w', trainable=True)
-
-    def modulation(self, w, weight):
-        # transform incoming W to style
-        style = self.mod_dense(w)
-        style = self.mod_bias(style) + 1.0
-
-        # scale weight
-        weight *= style[:, np.newaxis, np.newaxis, :, np.newaxis]
-        return weight
-
-    def demodulation(self, weight):
-        d = self.demod_scale(weight)
-        weight *= d[:, np.newaxis, np.newaxis, np.newaxis, :]
-        return weight
-
-    def prepare_weights(self, w):
-        # prepare convolution kernel weights: (3, 3, in_channel, fmaps) -> (1, 3, 3, in_channel, fmaps)
-        weight = self.runtime_coef * self.w
-        weight = weight[np.newaxis]
-
-        # modulation: (?, 3, 3, in_channel, fmaps)
-        weight = self.modulation(w, weight)
-
-        # demodulation: : (?, 3, 3, in_channel, fmaps)
-        if self.do_demod:
-            weight = self.demodulation(weight)
-
-        # weight: reshape, prepare for fused operation
-        # (?, 3, 3, in_channel, fmaps) -> (3, 3, in_channel, ?, fmaps) -> (3, 3, in_channel, ? * fmaps)
-        weight_new_shape = [weight.shape[1], weight.shape[2], weight.shape[3], -1]
-        weight = tf.transpose(weight, [1, 2, 3, 0, 4])
-        weight = tf.reshape(weight, shape=weight_new_shape)
-        return weight
-
-    def call(self, inputs, training=None, mask=None):
-        x, w = inputs
-
-        # prepare convolution kernel weights
-        weight = self.prepare_weights(w)
-
-        # prepare inputs: reshape minibatch to convolution groups
-        # (?, in_channel, h, w) -> (1, ? * in_channel, h, w)
-        x = tf.reshape(x, [1, -1, x.shape[2], x.shape[3]])
-
-        # upsample & blur if needed
-        x = self.upscale2d(x)
-
-        # actual conv
-        x = tf.nn.conv2d(x, weight, data_format='NCHW', strides=[1, 1, 1, 1], padding='SAME')
-
-        # x: reshape back
-        x = tf.reshape(x, [-1, self.fmaps, x.shape[2], x.shape[3]])
-        return x
-
-
 class Noise(tf.keras.layers.Layer):
     def __init__(self, **kwargs):
         super(Noise, self).__init__(**kwargs)
@@ -266,3 +123,115 @@ class MinibatchStd(tf.keras.layers.Layer):
         y = tf.cast(y, x.dtype)
         y = tf.tile(y, [group_size, 1, s[2], s[3]])
         return tf.concat([x, y], axis=1)
+
+
+class FusedModConv(tf.keras.layers.Layer):
+    def __init__(self, fmaps, kernel, gain, lrmul, style_fmaps, demodulate, up, down, resample_kernel, **kwargs):
+        super(FusedModConv, self).__init__(**kwargs)
+        assert not (up and down)
+        self.fmaps = fmaps
+        self.kernel = kernel
+        self.gain = gain
+        self.lrmul = lrmul
+        self.style_fmaps = style_fmaps
+        self.demodulate = demodulate
+        self.up = up
+        self.down = down
+        self.factor = 2
+        if resample_kernel is None:
+            resample_kernel = [1] * self.factor
+        self.k = setup_resample_kernel(k=resample_kernel)
+
+        self.mod_dense = Dense(self.style_fmaps, gain=1.0, lrmul=1.0, name='mod_dense')
+        self.mod_bias = Bias(lrmul=1.0, name='mod_bias')
+
+    def build(self, input_shape):
+        x_shape, w_shape = input_shape[0], input_shape[1]
+        weight_shape = [self.kernel, self.kernel, x_shape[1], self.fmaps]
+        init_std, runtime_coef = compute_runtime_coef(weight_shape, self.gain, self.lrmul)
+
+        self.runtime_coef = runtime_coef
+
+        # [kkIO]
+        w_init = tf.random.normal(shape=weight_shape, mean=0.0, stddev=init_std)
+        self.w = tf.Variable(w_init, name='w', trainable=True)
+
+    def scale_conv_weights(self, w):
+        # convolution kernel weights for fused conv
+        weight = self.runtime_coef * self.w     # [kkIO]
+        weight = weight[np.newaxis]             # [BkkIO]
+
+        # modulation
+        style = self.mod_dense(w)                                   # [BI]
+        style = self.mod_bias(style) + 1.0                          # [BI]
+        weight *= style[:, np.newaxis, np.newaxis, :, np.newaxis]   # [BkkIO]
+
+        # demodulation
+        if self.demodulate:
+            d = tf.math.rsqrt(tf.reduce_sum(tf.square(weight), axis=[1, 2, 3]) + 1e-8)  # [BO]
+            weight *= d[:, np.newaxis, np.newaxis, np.newaxis, :]                       # [BkkIO]
+
+        # weight: reshape, prepare for fused operation
+        new_weight_shape = [weight.shape[1], weight.shape[2], weight.shape[3], -1]      # [kkI(BO)]
+        weight = tf.transpose(weight, [1, 2, 3, 0, 4])                                  # [kkIBO]
+        weight = tf.reshape(weight, shape=new_weight_shape)                             # [kkI(BO)]
+        return weight
+
+    def call(self, inputs, training=None, mask=None):
+        x, w = inputs
+        height, width = x.shape[2], x.shape[3]
+
+        # prepare convolution kernel weights
+        weight = self.scale_conv_weights(w)
+
+        # prepare inputs: reshape minibatch to convolution groups
+        x = tf.reshape(x, [1, -1, height, width])
+
+        if self.up:
+            x = upsample_conv_2d(x, self.k, weight, self.factor, self.gain)
+        elif self.down:
+            x = conv_downsample_2d(x, self.k, weight, self.factor, self.gain)
+        else:
+            x = tf.nn.conv2d(x, weight, data_format='NCHW', strides=[1, 1, 1, 1], padding='SAME')
+
+        # x: reshape back
+        x = tf.reshape(x, [-1, self.fmaps, x.shape[2], x.shape[3]])
+        return x
+
+
+class ResizeConv2D(tf.keras.layers.Layer):
+    def __init__(self, fmaps, kernel, gain, lrmul, up, down, resample_kernel, **kwargs):
+        super(ResizeConv2D, self).__init__(**kwargs)
+        self.fmaps = fmaps
+        self.kernel = kernel
+        self.gain = gain
+        self.lrmul = lrmul
+        self.up = up
+        self.down = down
+        self.factor = 2
+        if resample_kernel is None:
+            resample_kernel = [1] * self.factor
+        self.k = setup_resample_kernel(k=resample_kernel)
+
+    def build(self, input_shape):
+        assert len(input_shape) == 4
+        weight_shape = [self.kernel, self.kernel, input_shape[1], self.fmaps]
+        init_std, runtime_coef = compute_runtime_coef(weight_shape, self.gain, self.lrmul)
+
+        self.runtime_coef = runtime_coef
+
+        # [kernel, kernel, fmaps_in, fmaps_out]
+        w_init = tf.random_normal_initializer(mean=0.0, stddev=init_std)
+        self.w = tf.Variable(initial_value=w_init(shape=weight_shape, dtype='float32'), trainable=True, name='w')
+
+    def call(self, inputs, training=None, mask=None):
+        x = inputs
+        weight = self.runtime_coef * self.w
+
+        if self.up:
+            x = upsample_conv_2d(x, self.k, weight, self.factor, self.gain)
+        elif self.down:
+            x = conv_downsample_2d(x, self.k, weight, self.factor, self.gain)
+        else:
+            x = tf.nn.conv2d(x, weight, data_format='NCHW', strides=[1, 1, 1, 1], padding='SAME')
+        return x

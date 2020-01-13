@@ -15,6 +15,7 @@ class Trainer(object):
     def __init__(self, t_params, name):
         self.model_base_dir = t_params['model_base_dir']
         self.tfrecord_dir = t_params['tfrecord_dir']
+        self.shuffle_buffer_size = t_params['shuffle_buffer_size']
         self.g_params = t_params['g_params']
         self.d_params = t_params['d_params']
         self.g_opt = t_params['g_opt']
@@ -24,7 +25,7 @@ class Trainer(object):
         self.n_samples = min(t_params['batch_size'], t_params['n_samples'])
 
         self.r1_gamma = 10.0
-        self.r2_gamma = 0.0
+        # self.r2_gamma = 0.0
         self.max_steps = int(np.ceil(self.n_total_image / self.batch_size))
         self.out_res = self.g_params['resolutions'][-1]
         self.log_template = 'step {}: elapsed: {:.2f}s, d_loss: {:.3f}, g_loss: {:.3f}, r1_penalty: {:.3f}'
@@ -35,7 +36,8 @@ class Trainer(object):
 
         # grab dataset
         print('Setting datasets')
-        self.dataset = get_ffhq_dataset(self.tfrecord_dir, self.out_res, self.batch_size, epochs=None)
+        self.dataset = get_ffhq_dataset(self.tfrecord_dir, self.out_res, self.shuffle_buffer_size,
+                                        self.batch_size, epochs=None)
 
         # create models
         print('Create models')
@@ -180,11 +182,9 @@ class Trainer(object):
             # save every self.image_summary_step
             if step % self.image_summary_step == 0:
                 # add summary image
-                real_images_cropped, sample_fake_images_eval, sample_fake_images_clone = self.sample_image(real_images)
+                summary_image = self.sample_images_tensorboard(real_images)
                 with train_summary_writer.as_default():
-                    tf.summary.image('real_images', real_images_cropped, step=step)
-                    tf.summary.image('fake_images_eval', sample_fake_images_eval, step=step)
-                    tf.summary.image('fake_images_clone', sample_fake_images_clone, step=step)
+                    tf.summary.image('images', summary_image, step=step)
 
             # print every self.print_steps
             if step % self.print_step == 0:
@@ -207,24 +207,35 @@ class Trainer(object):
         self.manager.save(checkpoint_number=step)
         return
 
-    def sample_image(self, real_images):
-        def finalize_image(img, res, n_samples):
-            img = postprocess_images(img)
-            img = img.numpy()
-            img = merge_batch_images(img, res, rows=1, cols=n_samples)
-            img = np.expand_dims(img, axis=0)
-            return img
+    def sample_images_tensorboard(self, real_images):
+        # prepare inputs
+        reals = real_images[:self.n_samples, :, :, :]
+        latents = tf.random.normal(shape=(self.n_samples, self.g_params['z_dim']), dtype=tf.dtypes.float32)
+        dummy_labels = tf.ones((self.n_samples, self.g_params['labels_dim']), dtype=tf.dtypes.float32)
 
-        real_images_cropped = real_images[:self.n_samples, :, :, :]
-        sample_z = tf.random.normal(shape=(self.n_samples, self.g_params['z_dim']), dtype=tf.dtypes.float32)
-        sample_labels = tf.ones((self.n_samples, self.g_params['labels_dim']), dtype=tf.dtypes.float32)
-        fake_images_eval = self.generator([sample_z, sample_labels], training=False)
-        fake_images_clone = self.g_clone([sample_z, sample_labels], training=False)
-        real_images_cropped = finalize_image(real_images_cropped, self.out_res, self.n_samples)
-        fake_images_eval = finalize_image(fake_images_eval, self.out_res, self.n_samples)
-        fake_images_clone = finalize_image(fake_images_clone, self.out_res, self.n_samples)
+        # run networks
+        fake_images_00 = self.g_clone([latents, dummy_labels], truncation_psi=0.0, training=False)
+        fake_images_05 = self.g_clone([latents, dummy_labels], truncation_psi=0.5, training=False)
+        fake_images_07 = self.g_clone([latents, dummy_labels], truncation_psi=0.7, training=False)
+        fake_images_10 = self.g_clone([latents, dummy_labels], truncation_psi=1.0, training=False)
 
-        return real_images_cropped, fake_images_eval, fake_images_clone
+        # merge on batch dimension: [5 * n_samples, 3, out_res, out_res]
+        out = tf.concat([reals, fake_images_00, fake_images_05, fake_images_07, fake_images_10], axis=0)
+
+        # prepare for image saving: [5 * n_samples, out_res, out_res, 3]
+        out = postprocess_images(out)
+
+        # resize to save disk spaces: [5 * n_samples, size, size, 3]
+        if self.out_res > 256:
+            size = 256
+        else:
+            size = self.out_res
+        out = tf.image.resize(out, size=[size, size])
+
+        # make single image and add batch dimension for tensorboard: [1, 5 * size, n_samples * size, 3]
+        out = merge_batch_images(out, size, rows=5, cols=self.n_samples)
+        out = np.expand_dims(out, axis=0)
+        return out
 
 
 def filter_resolutions_featuremaps(resolutions, featuremaps, res):
@@ -238,8 +249,10 @@ def main():
     # global program arguments parser
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--model_base_dir', default='./models', type=str)
-    parser.add_argument('--tfrecord_dir', default='/home/mookyung/git-repos/stylegan-reproduced/datasets/ffhq/tfrecords', type=str)
-    parser.add_argument('--train_res', default=128, type=int)
+    parser.add_argument('--tfrecord_dir', default='/mnt/vision-nas/data-sets/stylegan/ffhq-dataset/tfrecords/ffhq', type=str)
+    parser.add_argument('--train_res', default=256, type=int)
+    parser.add_argument('--shuffle_buffer_size', default=1000, type=int)
+    parser.add_argument('--batch_size', default=4, type=int)
     args = vars(parser.parse_args())
 
     # network params
@@ -256,8 +269,6 @@ def main():
         'featuremaps': train_featuremaps,
         'w_ema_decay': 0.995,
         'style_mixing_prob': 0.9,
-        'truncation_psi': 0.5,
-        'truncation_cutoff': None,
     }
     d_params = {
         'labels_dim': 0,
@@ -277,7 +288,7 @@ def main():
         # training params
         'g_opt': {'learning_rate': 0.002, 'beta1': 0.0, 'beta2': 0.99, 'epsilon': 1e-08},
         'd_opt': {'learning_rate': 0.002, 'beta1': 0.0, 'beta2': 0.99, 'epsilon': 1e-08},
-        'batch_size': 4,
+        'batch_size': args['batch_size'],
         'n_total_image': 25000000,
         'n_samples': 4,
     }

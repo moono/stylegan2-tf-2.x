@@ -1,0 +1,36 @@
+version: '2.3'
+services:
+  training:
+    image: moono/tf-2.0
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=7
+    user: "2004:2004"
+    container_name: "moono_gpu_7"
+    volumes:
+      - "/mnt/vision-nas/moono/git-repos/stylegan2-tf-2.x:/work-dir"
+      - "/mnt/vision-nas/moono/trained_models/stylegan2-tf-2.x:/model-dir"
+      - "/mnt/vision-nas/data-sets/stylegan/ffhq-dataset/tfrecords/ffhq:/tfrecord-dir:ro"
+    working_dir: "/work-dir"
+    command: ["python", "-u", "train.py",
+              "--model_base_dir", "/model-dir",
+              "--tfrecord_dir", "/tfrecord-dir",
+              "--train_res", "1024",
+              "--shuffle_buffer_size", "5000",
+              "--batch_size", "4"
+    ]
+  watching:
+    image: moono/tf-2.0
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=7
+    user: "2004:2004"
+    container_name: "moono_tensorboard_7"
+    depends_on:
+      - training
+    volumes:
+      - "/mnt/vision-nas/moono/trained_models/stylegan2-tf-2.x:/model-dir:ro"
+    ports:
+      - "36006:6006"
+    working_dir: "/model-dir"
+    command: ["tensorboard", "--logdir", "./", "--host", "0.0.0.0", "--port", "6006"]

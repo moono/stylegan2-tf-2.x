@@ -19,12 +19,9 @@ def parse_tfrecord_tf(record):
     return images
 
 
-def get_ffhq_dataset(tfrecord_base_dir, res, batch_size, epochs=None):
+def get_ffhq_dataset(tfrecord_base_dir, res, buffer_size, batch_size, epochs=None):
     fn_index = int(np.log2(res))
     tfrecord_fn = os.path.join(tfrecord_base_dir, 'ffhq-r{:02d}.tfrecords'.format(fn_index))
-
-    # buffer_size = compute_buffer_size(res)
-    buffer_size = 10000 # 70000
 
     with tf.device('/cpu:0'):
         dataset = tf.data.TFRecordDataset(tfrecord_fn)
