@@ -292,7 +292,7 @@ class Generator(tf.keras.Model):
             w_broadcasted = self.truncation_trick(w_broadcasted, truncation_cutoff, truncation_psi)
 
         image_out = self.synthesis(w_broadcasted)
-        return image_out
+        return image_out, w_broadcasted
 
 
 def main():
