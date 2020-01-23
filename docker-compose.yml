@@ -12,11 +12,11 @@ services:
       - "/mnt/vision-nas/moono/trained_models/stylegan2-tf-2.x:/model-dir"
       - "/mnt/vision-nas/data-sets/stylegan/ffhq-dataset/tfrecords/ffhq:/tfrecord-dir:ro"
     working_dir: "/work-dir"
-    command: ["python", "-u", "train.py",
+    command: ["python", "-u", "train_advanced.py",
               "--model_base_dir", "/model-dir",
               "--tfrecord_dir", "/tfrecord-dir",
               "--train_res", "1024",
-              "--shuffle_buffer_size", "5000",
+              "--shuffle_buffer_size", "1000",
               "--batch_size", "4"
     ]
   watching:

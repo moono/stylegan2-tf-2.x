@@ -9,6 +9,10 @@ from dataset_ffhq import get_ffhq_dataset
 from stylegan2.utils import preprocess_fit_train_image, postprocess_images, merge_batch_images
 from stylegan2.generator import Generator
 from stylegan2.discriminator import Discriminator
+from tf_utils.utils import allow_memory_growth
+
+
+allow_memory_growth()
 
 
 class Trainer(object):
@@ -40,7 +44,8 @@ class Trainer(object):
         self.d_opt = self.set_optimizer_params(self.d_opt)
         self.pl_mean = tf.Variable(initial_value=0.0, name='pl_mean', trainable=False)
         self.pl_decay = 0.01
-        self.pl_weight = 2.0
+        self.pl_weight = 1.0
+        self.pl_denorm = 1.0 / np.sqrt(self.out_res * self.out_res)
 
         # grab dataset
         print('Setting datasets')
@@ -102,7 +107,7 @@ class Trainer(object):
             params['beta2'] = params['beta2'] ** mb_ratio
         return params
 
-    # @tf.function
+    @tf.function
     def d_train_step(self, z, real_images, labels):
         with tf.GradientTape() as d_tape:
             # forward pass
@@ -118,7 +123,7 @@ class Trainer(object):
         self.d_optimizer.apply_gradients(zip(d_gradients, self.discriminator.trainable_variables))
         return d_loss
 
-    # @tf.function
+    @tf.function
     def d_reg_train_step(self, z, real_images, labels):
         with tf.GradientTape() as d_tape:
             # forward pass
@@ -148,7 +153,7 @@ class Trainer(object):
         self.d_optimizer.apply_gradients(zip(d_gradients, self.discriminator.trainable_variables))
         return d_loss, tf.reduce_mean(r1_penalty)
 
-    # @tf.function
+    @tf.function
     def g_train_step(self, z, labels):
         with tf.GradientTape() as g_tape:
             # forward pass
@@ -163,25 +168,25 @@ class Trainer(object):
         self.g_optimizer.apply_gradients(zip(g_gradients, self.generator.trainable_variables))
         return g_loss
 
-    # @tf.function
+    @tf.function
     def g_reg_train_step(self, z, labels):
         with tf.GradientTape() as g_tape:
             # forward pass
-            fake_images, w_broadcasted = self.generator([z, labels], training=True)
+            fake_images, _ = self.generator([z, labels], training=True)
             fake_scores = self.discriminator([fake_images, labels], training=True)
 
             # gan loss
             g_loss = tf.math.softplus(-fake_scores)
 
             # path length regularization
-            h, w = fake_images.shape[2], fake_images.shape[3]
-
             # Compute |J*y|.
             with tf.GradientTape() as pl_tape:
-                pl_tape.watch(w_broadcasted)
-                pl_noise = tf.random.normal(tf.shape(fake_images), mean=0.0, stddev=1.0, dtype=tf.float32) / np.sqrt(h * w)
+                fake_images, w_broadcasted = self.generator([z, labels], training=True)
 
-            pl_grads = pl_tape.gradient(tf.reduce_sum(fake_images * pl_noise), w_broadcasted)
+                pl_noise = tf.random.normal(tf.shape(fake_images), mean=0.0, stddev=1.0, dtype=tf.float32) * self.pl_denorm
+                pl_noise_added = tf.reduce_sum(fake_images * pl_noise)
+
+            pl_grads = pl_tape.gradient(pl_noise_added, w_broadcasted)
             pl_lengths = tf.math.sqrt(tf.reduce_mean(tf.reduce_sum(tf.math.square(pl_grads), axis=2), axis=1))
 
             # Track exponential moving average of |J*y|.
@@ -359,7 +364,7 @@ def main():
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--model_base_dir', default='./models', type=str)
     parser.add_argument('--tfrecord_dir', default='/mnt/vision-nas/data-sets/stylegan/ffhq-dataset/tfrecords/ffhq', type=str)
-    parser.add_argument('--train_res', default=256, type=int)
+    parser.add_argument('--train_res', default=32, type=int)
     parser.add_argument('--shuffle_buffer_size', default=1000, type=int)
     parser.add_argument('--batch_size', default=4, type=int)
     args = vars(parser.parse_args())
