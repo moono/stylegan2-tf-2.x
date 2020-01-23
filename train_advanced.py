@@ -9,10 +9,10 @@ from dataset_ffhq import get_ffhq_dataset
 from stylegan2.utils import preprocess_fit_train_image, postprocess_images, merge_batch_images
 from stylegan2.generator import Generator
 from stylegan2.discriminator import Discriminator
-from tf_utils.utils import allow_memory_growth
+# from tf_utils.utils import allow_memory_growth
 
 
-allow_memory_growth()
+# allow_memory_growth()
 
 
 class Trainer(object):
