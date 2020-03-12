@@ -151,7 +151,8 @@ class EncodeImage(object):
             'style_mixing_prob': 0.9,
         }
         generator = Generator(g_params)
-        test_latent = np.ones((1, g_params['z_dim']), dtype=np.float32)
+        # test_latent = np.ones((1, g_params['z_dim']), dtype=np.float32)
+        test_latent = np.random.normal(loc=0.0, scale=1.0, size=(1, g_params['z_dim']))
         test_labels = np.ones((1, g_params['labels_dim']), dtype=np.float32)
         _ = generator([test_latent, test_labels], training=False)
 
@@ -163,6 +164,9 @@ class EncodeImage(object):
             print('Restored from {}'.format(manager.latest_checkpoint))
         else:
             raise ValueError('Wrong checkpoint dir!!')
+
+        sample1, __ = generator([test_latent, test_labels], truncation_psi=0.5, training=False)
+        self.save_image(sample1, 'current_generator_sample.png')
 
         # build encoder model
         encoder_model = EncoderModel(resolutions, featuremaps, self.vgg16_layer_names, self.image_size)
@@ -179,14 +183,15 @@ class EncodeImage(object):
 
         return encoder_model
 
-    def perceptual_loss(self, y_true_list, y_pred_list):
+    def perceptual_loss(self, y_true_list, y_pred_list, mse):
         loss = 0.0
         for y_true, y_pred in zip(y_true_list, y_pred_list):
-            loss += self.lambda_percept * tf.reduce_mean(tf.square(y_pred - y_true))
+            loss += self.lambda_percept * mse(y_pred, y_true)
         return loss
 
-    # @tf.function
+    @tf.function
     def step(self):
+        mse = tf.keras.losses.MeanSquaredError()
         with tf.GradientTape() as tape:
             tape.watch([self.w_broadcasted, self.target_image] + self.target_features)
 
@@ -194,8 +199,8 @@ class EncodeImage(object):
             fake_image, embeddings = self.encoder_model(self.w_broadcasted)
 
             # losses
-            loss = self.perceptual_loss(self.target_features, embeddings)
-            loss += self.lambda_mse * tf.reduce_mean(tf.abs(fake_image - self.target_image))
+            loss = self.perceptual_loss(self.target_features, embeddings, mse)
+            loss += self.lambda_mse * mse(fake_image, self.target_image)
 
         t_vars = [self.w_broadcasted]
         gradients = tape.gradient(loss, t_vars)
@@ -215,6 +220,7 @@ class EncodeImage(object):
         # lets restore with optimized embeddings
         final_image = self.encoder_model.run_synthesis_model(self.w_broadcasted)
         self.save_image(final_image, out_fn='final_encoded.png')
+        np.save('final_encoded.npy', self.w_broadcasted.numpy())
         return
 
 
