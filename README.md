@@ -2,7 +2,7 @@
 * This is tensorflow 2.0 based keras subclassing reimplementation of official [StyleGAN2 Repo](https://github.com/NVlabs/stylegan2)
 
 ## To do list
-| Items | Impleneted |
+| Items | Implemented |
 | :--- |  :---: |
 | weight modulation / demodulation | :heavy_check_mark: |
 | skip architecture | :heavy_check_mark: |
