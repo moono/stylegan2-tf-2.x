@@ -11,23 +11,29 @@ from stylegan2.utils import adjust_dynamic_range
 
 
 class EncoderModel(tf.keras.Model):
-    def __init__(self, resolutions, featuremaps, image_size, **kwargs):
+    def __init__(self, resolutions, featuremaps, vgg16_layer_names, image_size, **kwargs):
         super(EncoderModel, self).__init__(**kwargs)
         self.resolutions = resolutions
         self.featuremaps = featuremaps
+        self.vgg16_layer_names = vgg16_layer_names
         self.image_size = image_size
 
         self.synthesis = Synthesis(self.resolutions, self.featuremaps, name='g_synthesis')
         self.perceptual_model = self.load_perceptual_network()
 
     def load_perceptual_network(self):
-        vgg16_layer_name = 'block3_conv3'  # 9: [None, 64, 64, 256]
         vgg16 = VGG16(include_top=False, weights='imagenet', input_shape=(self.image_size, self.image_size, 3))
-        perceptual_model = Model(vgg16.input, vgg16.get_layer(vgg16_layer_name).output)
+
+        # for l in vgg16.layers:
+        #     print('{}: {}'.format(l.name, l.output_shape))
+
+        vgg16_output_layers = [l.output for l in vgg16.layers if l.name in self.vgg16_layer_names]
+        perceptual_model = Model(vgg16.input, vgg16_output_layers)
 
         # freeze weights
         for layer in perceptual_model.layers:
             layer.trainable = False
+
         return perceptual_model
 
     def set_weights(self, src_net):
@@ -84,25 +90,25 @@ class EncoderModel(tf.keras.Model):
 
 
 class EncodeImage(object):
-    def __init__(self, target_image_fn, image_size, generator_ckpt_dir):
+    def __init__(self, params):
         # set variables
         self.batch_size = 1
-        self.learning_rate = 0.002
-        self.n_train_step = 1000
+        self.optimizer = params['optimizer']
+        self.n_train_step = params['n_train_step']
+        self.lambda_percept = params['lambda_percept']
+        self.lambda_mse = params['lambda_mse']
         self.w_broadcasted_shape = [self.batch_size, 18, 512]
-        self.image_size = image_size
-        self.ckpt_dir = generator_ckpt_dir
+        self.image_size = params['image_size']
+        self.generator_ckpt_dir = params['generator_ckpt_dir']
+        self.vgg16_layer_names = params['vgg16_layer_names']
         self.save_every = 100
 
         # set image & models
-        self.target_image = self.load_image(target_image_fn, image_size)
+        self.target_image = self.load_image(params['target_image_fn'], self.image_size)
         self.encoder_model = self.load_encoder_model()
 
         # precompute target image perceptual features
-        self.target_feature = self.encoder_model.run_perceptual_model(self.target_image)
-
-        # prepare optimizer
-        self.optimizer = tf.keras.optimizers.Adam(self.learning_rate)
+        self.target_features = self.encoder_model.run_perceptual_model(self.target_image)
 
         # prepare variables to optimize
         self.w_broadcasted = tf.Variable(np.zeros(shape=self.w_broadcasted_shape, dtype=np.float32), trainable=True)
@@ -151,7 +157,7 @@ class EncodeImage(object):
 
         # try to restore from g_clone
         ckpt = tf.train.Checkpoint(g_clone=generator)
-        manager = tf.train.CheckpointManager(ckpt, self.ckpt_dir, max_to_keep=2)
+        manager = tf.train.CheckpointManager(ckpt, self.generator_ckpt_dir, max_to_keep=2)
         ckpt.restore(manager.latest_checkpoint).expect_partial()
         if manager.latest_checkpoint:
             print('Restored from {}'.format(manager.latest_checkpoint))
@@ -159,7 +165,7 @@ class EncodeImage(object):
             raise ValueError('Wrong checkpoint dir!!')
 
         # build encoder model
-        encoder_model = EncoderModel(resolutions, featuremaps, self.image_size)
+        encoder_model = EncoderModel(resolutions, featuremaps, self.vgg16_layer_names, self.image_size)
         test_dlatent_plus = np.ones(self.w_broadcasted_shape, dtype=np.float32)
         _, __ = encoder_model(test_dlatent_plus)
 
@@ -173,17 +179,23 @@ class EncodeImage(object):
 
         return encoder_model
 
+    def perceptual_loss(self, y_true_list, y_pred_list):
+        loss = 0.0
+        for y_true, y_pred in zip(y_true_list, y_pred_list):
+            loss += self.lambda_percept * tf.reduce_mean(tf.square(y_pred - y_true))
+        return loss
+
     # @tf.function
     def step(self):
         with tf.GradientTape() as tape:
-            tape.watch([self.w_broadcasted, self.target_feature, self.target_image])
+            tape.watch([self.w_broadcasted, self.target_image] + self.target_features)
 
             # forward pass
             fake_image, embeddings = self.encoder_model(self.w_broadcasted)
 
             # losses
-            loss = tf.reduce_mean(tf.square(embeddings - self.target_feature))
-            loss += tf.reduce_mean(tf.abs(fake_image - self.target_image))
+            loss = self.perceptual_loss(self.target_features, embeddings)
+            loss += self.lambda_mse * tf.reduce_mean(tf.abs(fake_image - self.target_image))
 
         t_vars = [self.w_broadcasted]
         gradients = tape.gradient(loss, t_vars)
@@ -207,10 +219,27 @@ class EncodeImage(object):
 
 
 def main():
-    image_fn = './00011.png'
-    image_size = 256
-    generator_ckpt_dir = './models/__stylegan2-ffhq'
-    image_encoder = EncodeImage(image_fn, image_size, generator_ckpt_dir)
+    encode_params = {
+        'target_image_fn': './00011.png',
+        'image_size': 256,
+        'generator_ckpt_dir': './models/__stylegan2-ffhq',
+
+        # # puzer config
+        # 'optimizer': tf.keras.optimizers.SGD(1.0),
+        # 'n_train_step': 1000,
+        # 'lambda_percept': 1.0,
+        # 'lambda_mse': 1.0,
+        # 'vgg16_layer_names': ['block3_conv3'],
+
+        # image2stylegan config
+        'optimizer': tf.keras.optimizers.Adam(0.01, beta_1=0.9, beta_2=0.999, epsilon=1e-8),
+        'n_train_step': 5000,
+        'lambda_percept': 1.0,
+        'lambda_mse': 1.0,
+        'vgg16_layer_names': ['block1_conv1', 'block1_conv2', 'block3_conv2', 'block4_conv2'],
+    }
+
+    image_encoder = EncodeImage(encode_params)
     image_encoder.encode_image()
     return
 
