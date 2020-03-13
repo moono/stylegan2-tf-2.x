@@ -100,12 +100,17 @@ class EncodeImage(object):
         self.w_broadcasted_shape = [self.batch_size, 18, 512]
         self.image_size = params['image_size']
         self.generator_ckpt_dir = params['generator_ckpt_dir']
+        self.output_dir = params['output_dir']
         self.vgg16_layer_names = params['vgg16_layer_names']
         self.save_every = 100
 
+        # prepare result dir
+        if not os.path.exists(self.output_dir):
+            os.makedirs(self.output_dir)
+
         # set image & models
         self.target_image = self.load_image(params['target_image_fn'], self.image_size)
-        self.encoder_model = self.load_encoder_model()
+        self.encoder_model, self.sample_image = self.load_encoder_model()
 
         # precompute target image perceptual features
         self.target_features = self.encoder_model.run_perceptual_model(self.target_image)
@@ -122,6 +127,14 @@ class EncodeImage(object):
         image = np.expand_dims(image, axis=0)
         image = tf.constant(image, dtype=tf.dtypes.float32)
         image = vgg16_preprocess_input(image)
+        return image
+
+    @staticmethod
+    def convert_image_to_uint8(fake_image):
+        image = adjust_dynamic_range(fake_image, range_in=(-1.0, 1.0), range_out=(0.0, 255.0),
+                                     out_dtype=tf.dtypes.float32)
+        image = tf.transpose(image, [0, 2, 3, 1])
+        image = tf.cast(image, dtype=tf.dtypes.uint8)
         return image
 
     @staticmethod
@@ -165,8 +178,9 @@ class EncodeImage(object):
         else:
             raise ValueError('Wrong checkpoint dir!!')
 
-        sample1, __ = generator([test_latent, test_labels], truncation_psi=0.5, training=False)
-        self.save_image(sample1, 'current_generator_sample.png')
+        # sample image
+        sample_image, __ = generator([test_latent, test_labels], truncation_psi=0.5, training=False)
+        # self.save_image(sample_image, os.path.join(self.output_dir, 'current_generator_sample.png'))
 
         # build encoder model
         encoder_model = EncoderModel(resolutions, featuremaps, self.vgg16_layer_names, self.image_size)
@@ -181,7 +195,7 @@ class EncodeImage(object):
         for layer in encoder_model.layers:
             layer.trainable = False
 
-        return encoder_model
+        return encoder_model, sample_image
 
     def perceptual_loss(self, y_true_list, y_pred_list, mse):
         loss = 0.0
@@ -208,19 +222,40 @@ class EncodeImage(object):
         return loss
 
     def encode_image(self):
-        for ts in range(self.n_train_step):
+        def write_to_tensorboard(writer, w_broadcasted, image, step):
+            # save to tensorboard
+            with writer.as_default():
+                for ii in range(18):
+                    tf.summary.histogram('w+_{:02d}'.format(ii), w_broadcasted[0, ii, :], step=step)
+                    tf.summary.image('encoded', image, step=step)
+            return
+
+        # setup tensorboards
+        train_summary_writer = tf.summary.create_file_writer(self.output_dir)
+        write_to_tensorboard(train_summary_writer, self.w_broadcasted,
+                             image=self.convert_image_to_uint8(self.sample_image),
+                             step=0)
+
+        for ts in range(1, self.n_train_step + 1):
+            # optimize step
             loss_val = self.step()
 
-            print('[step {:05d}/{:05d}]: {}'.format(ts, self.n_train_step, loss_val.numpy()))
-
+            # save results
             if ts % self.save_every == 0:
+                print('[step {:05d}/{:05d}]: {}'.format(ts, self.n_train_step, loss_val.numpy()))
+
                 fake_image = self.encoder_model.run_synthesis_model(self.w_broadcasted)
-                self.save_image(fake_image, out_fn='encoded_at_step_{:04d}.png'.format(ts))
+                write_to_tensorboard(train_summary_writer, self.w_broadcasted,
+                                     image=self.convert_image_to_uint8(fake_image),
+                                     step=ts)
+
+                # self.save_image(fake_image=fake_image,
+                #                 out_fn=os.path.join(self.output_dir, 'encoded_at_step_{:04d}.png'.format(ts)))
 
         # lets restore with optimized embeddings
         final_image = self.encoder_model.run_synthesis_model(self.w_broadcasted)
-        self.save_image(final_image, out_fn='final_encoded.png')
-        np.save('final_encoded.npy', self.w_broadcasted.numpy())
+        self.save_image(final_image, out_fn=os.path.join(self.output_dir, 'final_encoded.png'))
+        np.save(os.path.join(self.output_dir, 'final_encoded.npy'), self.w_broadcasted.numpy())
         return
 
 
@@ -228,7 +263,9 @@ def main():
     encode_params = {
         'target_image_fn': './00011.png',
         'image_size': 256,
-        'generator_ckpt_dir': './models/__stylegan2-ffhq',
+        # 'generator_ckpt_dir': './models/__stylegan2-ffhq',
+        'generator_ckpt_dir': '/mnt/vision-nas/moono/trained_models/stylegan2-tf-2.x/stylegan2-ffhq',
+        'output_dir': './encode_results',
 
         # # puzer config
         # 'optimizer': tf.keras.optimizers.SGD(1.0),
