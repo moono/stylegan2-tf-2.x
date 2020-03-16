@@ -266,7 +266,7 @@ def main():
         'image_size': 256,
         'generator_ckpt_dir': os.path.join(abs_path, '../official-converted'),
         # 'generator_ckpt_dir': '/mnt/vision-nas/moono/trained_models/stylegan2-tf-2.x/stylegan2-ffhq',
-        'output_dir': os.path.join(abs_path, './encode_results'),
+        'output_dir': os.path.join(abs_path, './encode_results', 'on_w_plus'),
 
         # # puzer config
         # 'optimizer': tf.keras.optimizers.SGD(1.0),
