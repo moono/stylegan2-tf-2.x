@@ -227,7 +227,7 @@ class EncodeImage(object):
             with writer.as_default():
                 for ii in range(18):
                     tf.summary.histogram('w+_{:02d}'.format(ii), w_broadcasted[0, ii, :], step=step)
-                    tf.summary.image('encoded', image, step=step)
+                tf.summary.image('encoded', image, step=step)
             return
 
         # setup tensorboards
