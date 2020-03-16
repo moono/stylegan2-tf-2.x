@@ -171,7 +171,7 @@ class EncodeImage(object):
 
         # try to restore from g_clone
         ckpt = tf.train.Checkpoint(g_clone=generator)
-        manager = tf.train.CheckpointManager(ckpt, self.generator_ckpt_dir, max_to_keep=2)
+        manager = tf.train.CheckpointManager(ckpt, self.generator_ckpt_dir, max_to_keep=1)
         ckpt.restore(manager.latest_checkpoint).expect_partial()
         if manager.latest_checkpoint:
             print('Restored from {}'.format(manager.latest_checkpoint))
@@ -180,7 +180,7 @@ class EncodeImage(object):
 
         # sample image
         sample_image, __ = generator([test_latent, test_labels], truncation_psi=0.5, training=False)
-        # self.save_image(sample_image, os.path.join(self.output_dir, 'current_generator_sample.png'))
+        self.save_image(sample_image, os.path.join(self.output_dir, 'current_generator_sample.png'))
 
         # build encoder model
         encoder_model = EncoderModel(resolutions, featuremaps, self.vgg16_layer_names, self.image_size)
@@ -264,7 +264,7 @@ def main():
     encode_params = {
         'target_image_fn': os.path.join(abs_path, './00011.png'),
         'image_size': 256,
-        'generator_ckpt_dir': os.path.join(abs_path, '../models/__stylegan2-ffhq'),
+        'generator_ckpt_dir': os.path.join(abs_path, '../official-converted'),
         # 'generator_ckpt_dir': '/mnt/vision-nas/moono/trained_models/stylegan2-tf-2.x/stylegan2-ffhq',
         'output_dir': os.path.join(abs_path, './encode_results'),
 
