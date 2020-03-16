@@ -260,12 +260,13 @@ class EncodeImage(object):
 
 
 def main():
+    abs_path = os.path.dirname(os.path.abspath(__file__))
     encode_params = {
-        'target_image_fn': './00011.png',
+        'target_image_fn': os.path.join(abs_path, './00011.png'),
         'image_size': 256,
-        # 'generator_ckpt_dir': './models/__stylegan2-ffhq',
-        'generator_ckpt_dir': '/mnt/vision-nas/moono/trained_models/stylegan2-tf-2.x/stylegan2-ffhq',
-        'output_dir': './encode_results',
+        'generator_ckpt_dir': os.path.join(abs_path, '../models/__stylegan2-ffhq'),
+        # 'generator_ckpt_dir': '/mnt/vision-nas/moono/trained_models/stylegan2-tf-2.x/stylegan2-ffhq',
+        'output_dir': os.path.join(abs_path, './encode_results'),
 
         # # puzer config
         # 'optimizer': tf.keras.optimizers.SGD(1.0),
