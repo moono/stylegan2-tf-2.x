@@ -11,7 +11,7 @@ def setup_resample_kernel(k):
 
 
 def upfirdn_ref(x, k, up_x, up_y, down_x, down_y, pad_x0, pad_x1, pad_y0, pad_y1):
-    in_height, in_width = x.shape[1], x.shape[2]
+    in_height, in_width = tf.shape(x)[1], tf.shape(x)[2]
     minor_dim = tf.shape(x)[3]
     kernel_h, kernel_w = k.shape
 
@@ -21,8 +21,14 @@ def upfirdn_ref(x, k, up_x, up_y, down_x, down_y, pad_x0, pad_x1, pad_y0, pad_y1
     x = tf.reshape(x, [-1, in_height * up_y, in_width * up_x, minor_dim])
 
     # Pad (crop if negative).
-    x = tf.pad(x, [[0, 0], [max(pad_y0, 0), max(pad_y1, 0)], [max(pad_x0, 0), max(pad_x1, 0)], [0, 0]])
-    x = x[:, max(-pad_y0, 0): x.shape[1] - max(-pad_y1, 0), max(-pad_x0, 0): x.shape[2] - max(-pad_x1, 0), :]
+    x = tf.pad(x, [
+        [0, 0], 
+        [tf.math.maximum(pad_y0, 0), tf.math.maximum(pad_y1, 0)], 
+        [tf.math.maximum(pad_x0, 0), tf.math.maximum(pad_x1, 0)], 
+        [0, 0]
+    ])
+    x = x[:, tf.math.maximum(-pad_y0, 0): tf.shape(x)[1] - tf.math.maximum(-pad_y1, 0),
+          tf.math.maximum(-pad_x0, 0): tf.shape(x)[2] - tf.math.maximum(-pad_x1, 0), :]
 
     # Convolve with filter.
     x = tf.transpose(x, [0, 3, 1, 2])
@@ -49,8 +55,8 @@ def simple_upfirdn_2d(x, k, up=1, down=1, pad0=0, pad1=0):
 
 
 def upsample_conv_2d(x, k, weight, factor, gain):
-    x_height, x_width = x.shape[2], x.shape[3]
-    w_height, w_width = weight.shape[0], weight.shape[1]
+    x_height, x_width = tf.shape(x)[2], tf.shape(x)[3]
+    w_height, w_width = tf.shape(weight)[0], tf.shape(weight)[1]
     w_ic, w_oc = tf.shape(weight)[2], tf.shape(weight)[3]
 
     # Setup filter kernel.
@@ -76,7 +82,7 @@ def upsample_conv_2d(x, k, weight, factor, gain):
 
 
 def conv_downsample_2d(x, k, weight, factor, gain):
-    w_height, w_width = weight.shape[0], weight.shape[1]
+    w_height, w_width = tf.shape(weight)[0], tf.shape(weight)[1]
 
     # Setup filter kernel.
     k = k * gain

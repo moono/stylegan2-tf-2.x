@@ -22,6 +22,13 @@ class ToRGB(tf.keras.layers.Layer):
         x = self.apply_bias(x)
         return x
 
+    def get_config(self):
+        config = super(ToRGB, self).get_config()
+        config.update({
+            'in_ch': self.in_ch,
+        })
+        return config
+
 
 class Mapping(tf.keras.layers.Layer):
     def __init__(self, w_dim, labels_dim, n_mapping, n_broadcast, **kwargs):
@@ -68,6 +75,18 @@ class Mapping(tf.keras.layers.Layer):
         x = self.broadcast(x)
         return x
 
+    def get_config(self):
+        config = super(Mapping, self).get_config()
+        config.update({
+            'w_dim': self.w_dim,
+            'labels_dim': self.labels_dim,
+            'n_mapping': self.n_mapping,
+            'n_broadcast': self.n_broadcast,
+            'gain': self.gain,
+            'lrmul': self.lrmul,
+        })
+        return config
+
 
 class SynthesisConstBlock(tf.keras.layers.Layer):
     def __init__(self, fmaps, res, **kwargs):
@@ -104,6 +123,16 @@ class SynthesisConstBlock(tf.keras.layers.Layer):
         x = self.apply_bias(x)
         x = self.leaky_relu(x)
         return x
+
+    def get_config(self):
+        config = super(SynthesisConstBlock, self).get_config()
+        config.update({
+            'res': self.res,
+            'fmaps': self.fmaps,
+            'gain': self.gain,
+            'lrmul': self.lrmul,
+        })
+        return config
 
 
 class SynthesisBlock(tf.keras.layers.Layer):
@@ -144,6 +173,17 @@ class SynthesisBlock(tf.keras.layers.Layer):
         x = self.apply_bias_1(x)
         x = self.leaky_relu_1(x)
         return x
+
+    def get_config(self):
+        config = super(SynthesisBlock, self).get_config()
+        config.update({
+            'in_ch': self.in_ch,
+            'res': self.res,
+            'fmaps': self.fmaps,
+            'gain': self.gain,
+            'lrmul': self.lrmul,
+        })
+        return config
 
 
 class Synthesis(tf.keras.layers.Layer):
@@ -190,6 +230,15 @@ class Synthesis(tf.keras.layers.Layer):
 
         images_out = y
         return images_out
+
+    def get_config(self):
+        config = super(Synthesis, self).get_config()
+        config.update({
+            'resolutions': self.resolutions,
+            'featuremaps': self.featuremaps,
+            'k': self.k,
+        })
+        return config
 
 
 class Generator(tf.keras.Model):
@@ -279,6 +328,7 @@ class Generator(tf.keras.Model):
         truncated_w_broadcasted = lerp(self.w_avg, w_broadcasted, truncation_coefs)
         return truncated_w_broadcasted
 
+    @tf.function
     def call(self, inputs, truncation_cutoff=None, truncation_psi=1.0, training=None, mask=None):
         latents, labels = inputs
 
@@ -293,6 +343,21 @@ class Generator(tf.keras.Model):
 
         image_out = self.synthesis(w_broadcasted)
         return image_out, w_broadcasted
+
+    def compute_output_shape(self, input_shape):
+        assert isinstance(input_shape, list)
+
+        # shape_latents, shape_labels = input_shape
+        return input_shape[0][0], 3, self.resolutions[-1], self.resolutions[-1]
+
+    @tf.function
+    def serve(self, latents, labels, truncation_psi):
+        w_broadcasted = self.g_mapping([latents, labels])
+        w_broadcasted = self.truncation_trick(w_broadcasted, truncation_cutoff=None, truncation_psi=truncation_psi)
+        image_out = self.synthesis(w_broadcasted)
+
+        image_out.set_shape([None, 3, self.resolutions[-1], self.resolutions[-1]])
+        return image_out
 
 
 def main():

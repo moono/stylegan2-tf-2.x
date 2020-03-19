@@ -36,6 +36,15 @@ class Dense(tf.keras.layers.Layer):
         x = tf.matmul(x, weight)
         return x
 
+    def get_config(self):
+        config = super(Dense, self).get_config()
+        config.update({
+            'fmaps': self.fmaps,
+            'gain': self.gain,
+            'lrmul': self.lrmul,
+        })
+        return config
+
 
 class Bias(tf.keras.layers.Layer):
     def __init__(self, lrmul, **kwargs):
@@ -45,31 +54,48 @@ class Bias(tf.keras.layers.Layer):
     def build(self, input_shape):
         assert len(input_shape) == 2 or len(input_shape) == 4
 
+        self.len2 = True if len(input_shape) == 2 else False
+
         b_init = tf.zeros(shape=(input_shape[1],), dtype=tf.dtypes.float32)
         self.b = tf.Variable(b_init, name='b', trainable=True)
 
     def call(self, inputs, training=None, mask=None):
         b = self.lrmul * self.b
 
-        if len(tf.shape(inputs)) == 2:
+        if self.len2:
             x = inputs + b
-        elif len(tf.shape(inputs)) == 4:
-            x = inputs + tf.reshape(b, [1, -1, 1, 1])
         else:
-            raise ValueError('Wrong dimension!!')
+            x = inputs + tf.reshape(b, [1, -1, 1, 1])
         return x
+
+    def get_config(self):
+        config = super(Bias, self).get_config()
+        config.update({
+            'lrmul': self.lrmul,
+        })
+        return config
 
 
 class LeakyReLU(tf.keras.layers.Layer):
     def __init__(self, **kwargs):
         super(LeakyReLU, self).__init__(**kwargs)
-        self.act = tf.keras.layers.LeakyReLU(alpha=0.2)
+        self.alpha = 0.2
         self.gain = np.sqrt(2)
+
+        self.act = tf.keras.layers.LeakyReLU(alpha=self.alpha)
 
     def call(self, inputs, training=None, mask=None):
         x = self.act(inputs)
         x *= self.gain
         return x
+
+    def get_config(self):
+        config = super(LeakyReLU, self).get_config()
+        config.update({
+            'alpha': self.alpha,
+            'gain': self.gain,
+        })
+        return config
 
 
 class LabelEmbedding(tf.keras.layers.Layer):
@@ -86,6 +112,13 @@ class LabelEmbedding(tf.keras.layers.Layer):
     def call(self, inputs, training=None, mask=None):
         x = tf.matmul(inputs, self.w)
         return x
+
+    def get_config(self):
+        config = super(LabelEmbedding, self).get_config()
+        config.update({
+            'embed_dim': self.embed_dim,
+        })
+        return config
 
 
 class Noise(tf.keras.layers.Layer):
@@ -172,14 +205,14 @@ class FusedModConv(tf.keras.layers.Layer):
             weight *= d[:, np.newaxis, np.newaxis, np.newaxis, :]                       # [BkkIO]
 
         # weight: reshape, prepare for fused operation
-        new_weight_shape = [weight.shape[1], weight.shape[2], weight.shape[3], -1]      # [kkI(BO)]
-        weight = tf.transpose(weight, [1, 2, 3, 0, 4])                                  # [kkIBO]
-        weight = tf.reshape(weight, shape=new_weight_shape)                             # [kkI(BO)]
+        new_weight_shape = [tf.shape(weight)[1], tf.shape(weight)[2], tf.shape(weight)[3], -1]      # [kkI(BO)]
+        weight = tf.transpose(weight, [1, 2, 3, 0, 4])                                              # [kkIBO]
+        weight = tf.reshape(weight, shape=new_weight_shape)                                         # [kkI(BO)]
         return weight
 
     def call(self, inputs, training=None, mask=None):
         x, w = inputs
-        height, width = x.shape[2], x.shape[3]
+        height, width = tf.shape(x)[2], tf.shape(x)[3]
 
         # prepare convolution kernel weights
         weight = self.scale_conv_weights(w)
@@ -195,8 +228,24 @@ class FusedModConv(tf.keras.layers.Layer):
             x = tf.nn.conv2d(x, weight, data_format='NCHW', strides=[1, 1, 1, 1], padding='SAME')
 
         # x: reshape back
-        x = tf.reshape(x, [-1, self.fmaps, x.shape[2], x.shape[3]])
+        x = tf.reshape(x, [-1, self.fmaps, tf.shape(x)[2], tf.shape(x)[3]])
         return x
+
+    def get_config(self):
+        config = super(FusedModConv, self).get_config()
+        config.update({
+            'fmaps': self.fmaps,
+            'kernel': self.kernel,
+            'gain': self.gain,
+            'lrmul': self.lrmul,
+            'style_fmaps': self.style_fmaps,
+            'demodulate': self.demodulate,
+            'up': self.up,
+            'down': self.down,
+            'factor': self.factor,
+            'k': self.k,
+        })
+        return config
 
 
 class ResizeConv2D(tf.keras.layers.Layer):
@@ -235,3 +284,17 @@ class ResizeConv2D(tf.keras.layers.Layer):
         else:
             x = tf.nn.conv2d(x, weight, data_format='NCHW', strides=[1, 1, 1, 1], padding='SAME')
         return x
+
+    def get_config(self):
+        config = super(ResizeConv2D, self).get_config()
+        config.update({
+            'fmaps': self.fmaps,
+            'kernel': self.kernel,
+            'gain': self.gain,
+            'lrmul': self.lrmul,
+            'up': self.up,
+            'down': self.down,
+            'factor': self.factor,
+            'k': self.k,
+        })
+        return config
