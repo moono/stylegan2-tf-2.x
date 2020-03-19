@@ -31,12 +31,11 @@ class ToRGB(tf.keras.layers.Layer):
 
 
 class Mapping(tf.keras.layers.Layer):
-    def __init__(self, w_dim, labels_dim, n_mapping, n_broadcast, **kwargs):
+    def __init__(self, w_dim, labels_dim, n_mapping, **kwargs):
         super(Mapping, self).__init__(**kwargs)
         self.w_dim = w_dim
         self.labels_dim = labels_dim
         self.n_mapping = n_mapping
-        self.n_broadcast = n_broadcast
         self.gain = 1.0
         self.lrmul = 0.01
 
@@ -44,7 +43,6 @@ class Mapping(tf.keras.layers.Layer):
             self.labels_embedding = LabelEmbedding(embed_dim=self.w_dim, name='labels_embedding')
 
         self.normalize = tf.keras.layers.Lambda(lambda x: x * tf.math.rsqrt(tf.reduce_mean(tf.square(x), axis=1, keepdims=True) + 1e-8))
-        self.broadcast = tf.keras.layers.Lambda(lambda x: tf.tile(x[:, np.newaxis], [1, self.n_broadcast, 1]))
 
         self.dense_layers = list()
         self.bias_layers = list()
@@ -72,7 +70,6 @@ class Mapping(tf.keras.layers.Layer):
             x = apply_bias(x)
             x = leaky_relu(x)
 
-        x = self.broadcast(x)
         return x
 
     def get_config(self):
@@ -257,7 +254,8 @@ class Generator(tf.keras.Model):
         self.n_broadcast = len(self.resolutions) * 2
         self.mixing_layer_indices = np.arange(self.n_broadcast)[np.newaxis, :, np.newaxis]
 
-        self.g_mapping = Mapping(self.w_dim, self.labels_dim, self.n_mapping, self.n_broadcast, name='g_mapping')
+        self.g_mapping = Mapping(self.w_dim, self.labels_dim, self.n_mapping, name='g_mapping')
+        self.broadcast = tf.keras.layers.Lambda(lambda x: tf.tile(x[:, np.newaxis], [1, self.n_broadcast, 1]))
         self.synthesis = Synthesis(self.resolutions, self.featuremaps, name='g_synthesis')
 
     def build(self, input_shape):
@@ -300,7 +298,8 @@ class Generator(tf.keras.Model):
     def style_mixing_regularization(self, latents1, labels, w_broadcasted1):
         # get another w and broadcast it
         latents2 = tf.random.normal(shape=tf.shape(latents1), dtype=tf.dtypes.float32)
-        w_broadcasted2 = self.g_mapping([latents2, labels])
+        dlatents2 = self.g_mapping([latents2, labels])
+        w_broadcasted2 = self.broadcast(dlatents2)
 
         # find mixing limit index
         if tf.random.uniform([], 0.0, 1.0) < self.style_mixing_prob:
@@ -332,7 +331,8 @@ class Generator(tf.keras.Model):
     def call(self, inputs, truncation_cutoff=None, truncation_psi=1.0, training=None, mask=None):
         latents, labels = inputs
 
-        w_broadcasted = self.g_mapping([latents, labels])
+        dlatents = self.g_mapping([latents, labels])
+        w_broadcasted = self.broadcast(dlatents)
 
         if training:
             self.update_moving_average_of_w(w_broadcasted)
@@ -352,7 +352,8 @@ class Generator(tf.keras.Model):
 
     @tf.function
     def serve(self, latents, labels, truncation_psi):
-        w_broadcasted = self.g_mapping([latents, labels])
+        dlatents = self.g_mapping([latents, labels])
+        w_broadcasted = self.broadcast(dlatents)
         w_broadcasted = self.truncation_trick(w_broadcasted, truncation_cutoff=None, truncation_psi=truncation_psi)
         image_out = self.synthesis(w_broadcasted)
 
