@@ -3,6 +3,7 @@ import numpy as np
 import tensorflow as tf
 from PIL import Image
 
+from tf_utils.utils import allow_memory_growth
 from stylegan2.generator import Generator, Synthesis
 from stylegan2.utils import adjust_dynamic_range
 from encode_stuff.encoder_models.lpips_tensorflow import learned_perceptual_metric_model
@@ -29,7 +30,8 @@ class EncoderModel(tf.keras.Model):
     def set_weights(self, src_net):
         def split_first_name(name):
             splitted = name.split('/')
-            new_name = '/'.join(splitted[1:])
+            loc = splitted.index('g_synthesis') + 1
+            new_name = '/'.join(splitted[loc:])
             return new_name
 
         n_synthesis_weights = 0
@@ -39,7 +41,7 @@ class EncoderModel(tf.keras.Model):
                 n_synthesis_weights += 1
 
                 cw_name = split_first_name(cw.name)
-                for sw in src_net.trainable_weights:
+                for sw in src_net.weights:
                     sw_name = split_first_name(sw.name)
                     if cw_name == sw_name:
                         assert sw.shape == cw.shape
@@ -87,6 +89,7 @@ class EncodeImage(object):
         self.generator_ckpt_dir = params['generator_ckpt_dir']
         self.output_dir = params['output_dir']
         self.save_every = 100
+        self.initial_w_samples = 10000
 
         # prepare result dir
         if not os.path.exists(self.output_dir):
@@ -94,10 +97,10 @@ class EncodeImage(object):
 
         # set image & models
         self.target_image = self.load_image(params['target_image_fn'], self.image_size)
-        self.encoder_model, self.sample_image = self.load_encoder_model()
+        self.encoder_model, self.sample_image, w_avg, w_std = self.load_encoder_model()
 
         # prepare variables to optimize
-        self.w = tf.Variable(np.zeros(shape=self.w_shape, dtype=np.float32), trainable=True)
+        self.w = tf.Variable(w_avg, trainable=True)
         return
 
     @staticmethod
@@ -161,6 +164,13 @@ class EncodeImage(object):
         sample_image, __ = generator([test_latent, test_labels], truncation_psi=0.5, training=False)
         self.save_image(sample_image, os.path.join(self.output_dir, 'current_generator_sample.png'))
 
+        # sample w for statistics
+        initial_zs = np.random.RandomState(123).randn(self.initial_w_samples, g_params['z_dim'])
+        initial_ls = np.ones((self.initial_w_samples, g_params['labels_dim']), dtype=np.float32)
+        initial_ws = generator.g_mapping([initial_zs, initial_ls])
+        w_avg = np.mean(initial_ws, axis=0, keepdims=True)
+        w_std = (np.sum((initial_ws - w_avg) ** 2) / self.initial_w_samples) ** 0.5
+
         # build encoder model
         encoder_model = EncoderModel(resolutions, featuremaps, self.image_size)
         test_dlatent = np.ones(self.w_shape, dtype=np.float32)
@@ -175,7 +185,7 @@ class EncodeImage(object):
         for layer in encoder_model.layers:
             layer.trainable = False
 
-        return encoder_model, sample_image
+        return encoder_model, sample_image, w_avg, w_std
 
     @tf.function
     def step(self):
@@ -232,6 +242,8 @@ class EncodeImage(object):
 
 
 def main():
+    allow_memory_growth()
+
     abs_path = os.path.dirname(os.path.abspath(__file__))
     encode_params = {
         'target_image_fn': os.path.join(abs_path, './00011.png'),

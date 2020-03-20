@@ -6,6 +6,7 @@ from tensorflow.keras.applications.vgg16 import VGG16
 from tensorflow.keras.applications.vgg16 import preprocess_input as vgg16_preprocess_input
 from PIL import Image
 
+from tf_utils.utils import allow_memory_growth
 from stylegan2.generator import Generator, Synthesis
 from stylegan2.utils import adjust_dynamic_range
 
@@ -39,7 +40,8 @@ class EncoderModel(tf.keras.Model):
     def set_weights(self, src_net):
         def split_first_name(name):
             splitted = name.split('/')
-            new_name = '/'.join(splitted[1:])
+            loc = splitted.index('g_synthesis') + 1
+            new_name = '/'.join(splitted[loc:])
             return new_name
 
         n_synthesis_weights = 0
@@ -260,6 +262,8 @@ class EncodeImage(object):
 
 
 def main():
+    allow_memory_growth()
+
     abs_path = os.path.dirname(os.path.abspath(__file__))
     encode_params = {
         'target_image_fn': os.path.join(abs_path, './00011.png'),
