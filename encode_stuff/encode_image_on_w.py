@@ -10,12 +10,10 @@ from encode_stuff.encoder_models.lpips_tensorflow import learned_perceptual_metr
 
 
 class EncoderModel(tf.keras.Model):
-    def __init__(self, resolutions, featuremaps, image_size, **kwargs):
+    def __init__(self, resolutions, featuremaps, image_size, lpips_ckpt_dir, **kwargs):
         super(EncoderModel, self).__init__(**kwargs)
-        abs_path = os.path.dirname(os.path.abspath(__file__))
-        model_dir = os.path.join(abs_path, 'encoder_models')
-        vgg_ckpt_fn = os.path.join(model_dir, 'vgg', 'exported')
-        lin_ckpt_fn = os.path.join(model_dir, 'lin', 'exported')
+        vgg_ckpt_fn = os.path.join(lpips_ckpt_dir, 'vgg', 'exported')
+        lin_ckpt_fn = os.path.join(lpips_ckpt_dir, 'lin', 'exported')
 
         self.resolutions = resolutions
         self.featuremaps = featuremaps
@@ -41,7 +39,7 @@ class EncoderModel(tf.keras.Model):
                 n_synthesis_weights += 1
 
                 cw_name = split_first_name(cw.name)
-                for sw in src_net.weights:
+                for sw in src_net.trainable_weights:
                     sw_name = split_first_name(sw.name)
                     if cw_name == sw_name:
                         assert sw.shape == cw.shape
@@ -87,7 +85,10 @@ class EncodeImage(object):
         self.w_shape = [self.batch_size, 512]
         self.image_size = params['image_size']
         self.generator_ckpt_dir = params['generator_ckpt_dir']
+        self.lpips_ckpt_dir = params['lpips_ckpt_dir']
         self.output_dir = params['output_dir']
+        self.results_on_tensorboard = params['results_on_tensorboard']
+        self.output_name_prefix = ''
         self.save_every = 100
         self.initial_w_samples = 10000
 
@@ -95,12 +96,22 @@ class EncodeImage(object):
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
 
-        # set image & models
-        self.target_image = self.load_image(params['target_image_fn'], self.image_size)
-        self.encoder_model, self.sample_image, w_avg, w_std = self.load_encoder_model()
+        # set model
+        self.encoder_model, self.initial_w, sample_image = self.load_encoder_model()
 
         # prepare variables to optimize
-        self.w = tf.Variable(w_avg, trainable=True)
+        self.target_image = tf.Variable(
+            tf.zeros(shape=(self.batch_size, self.image_size, self.image_size, 3), dtype=np.float32),
+            trainable=False)
+        self.w = tf.Variable(
+            tf.zeros_like(self.initial_w, dtype=np.float32),
+            trainable=True)
+
+        # save initial state images
+        self.w.assign(self.initial_w)
+        initial_image = self.encoder_model.run_synthesis_model(self.w)
+        self.save_image(sample_image, os.path.join(self.output_dir, 'generator_sample.png'))
+        self.save_image(initial_image, out_fn=os.path.join(self.output_dir, 'initial_w.png'))
         return
 
     @staticmethod
@@ -162,17 +173,15 @@ class EncodeImage(object):
 
         # sample image
         sample_image, __ = generator([test_latent, test_labels], truncation_psi=0.5, training=False)
-        self.save_image(sample_image, os.path.join(self.output_dir, 'current_generator_sample.png'))
 
         # sample w for statistics
         initial_zs = np.random.RandomState(123).randn(self.initial_w_samples, g_params['z_dim'])
         initial_ls = np.ones((self.initial_w_samples, g_params['labels_dim']), dtype=np.float32)
         initial_ws = generator.g_mapping([initial_zs, initial_ls])
-        w_avg = np.mean(initial_ws, axis=0, keepdims=True)
-        w_std = (np.sum((initial_ws - w_avg) ** 2) / self.initial_w_samples) ** 0.5
+        initial_w = np.mean(initial_ws, axis=0, keepdims=True)
 
         # build encoder model
-        encoder_model = EncoderModel(resolutions, featuremaps, self.image_size)
+        encoder_model = EncoderModel(resolutions, featuremaps, self.image_size, self.lpips_ckpt_dir)
         test_dlatent = np.ones(self.w_shape, dtype=np.float32)
         test_target_image = np.ones((1, self.image_size, self.image_size, 3), dtype=np.float32)
         _, __ = encoder_model([test_dlatent, test_target_image])
@@ -185,7 +194,16 @@ class EncodeImage(object):
         for layer in encoder_model.layers:
             layer.trainable = False
 
-        return encoder_model, sample_image, w_avg, w_std
+        return encoder_model, initial_w, sample_image
+
+    def set_target_image(self, image_fn):
+        # reset target image & output name
+        self.target_image.assign(self.load_image(image_fn, self.image_size))
+        self.output_name_prefix = os.path.basename(image_fn)
+
+        # reset w too
+        self.w.assign(self.initial_w)
+        return
 
     @tf.function
     def step(self):
@@ -205,18 +223,10 @@ class EncodeImage(object):
         return loss
 
     def encode_image(self):
-        def write_to_tensorboard(writer, w, image, step):
-            # save to tensorboard
-            with writer.as_default():
-                tf.summary.histogram('w', w, step=step)
-                tf.summary.image('encoded', image, step=step)
-            return
-
-        # setup tensorboards
-        train_summary_writer = tf.summary.create_file_writer(self.output_dir)
-        write_to_tensorboard(train_summary_writer, self.w,
-                             image=self.convert_image_to_uint8(self.sample_image),
-                             step=0)
+        if self.results_on_tensorboard:
+            # setup tensorboards
+            train_summary_writer = tf.summary.create_file_writer(self.output_dir)
+            self.write_to_tensorboard(train_summary_writer, step=0)
 
         for ts in range(1, self.n_train_step + 1):
             # optimize step
@@ -225,19 +235,25 @@ class EncodeImage(object):
             # save results
             if ts % self.save_every == 0:
                 print('[step {:05d}/{:05d}]: {}'.format(ts, self.n_train_step, loss_val.numpy()))
-
-                fake_image = self.encoder_model.run_synthesis_model(self.w)
-                write_to_tensorboard(train_summary_writer, self.w,
-                                     image=self.convert_image_to_uint8(fake_image),
-                                     step=ts)
-
-                # self.save_image(fake_image=fake_image,
-                #                 out_fn=os.path.join(self.output_dir, 'encoded_at_step_{:04d}.png'.format(ts)))
+                if self.results_on_tensorboard:
+                    self.write_to_tensorboard(train_summary_writer, step=ts)
 
         # lets restore with optimized embeddings
         final_image = self.encoder_model.run_synthesis_model(self.w)
-        self.save_image(final_image, out_fn=os.path.join(self.output_dir, 'final_encoded.png'))
-        np.save(os.path.join(self.output_dir, 'final_encoded.npy'), self.w.numpy())
+        self.save_image(final_image, out_fn=os.path.join(self.output_dir,
+                                                         '{}_final_encoded.png'.format(self.output_name_prefix)))
+        np.save(os.path.join(self.output_dir, '{}_final_encoded.npy'.format(self.output_name_prefix)), self.w.numpy())
+        return
+
+    def write_to_tensorboard(self, writer, step):
+        # get current fake image
+        fake_image = self.encoder_model.run_synthesis_model(self.w)
+        fake_image = self.convert_image_to_uint8(fake_image)
+
+        # save to tensorboard
+        with writer.as_default():
+            tf.summary.histogram('w', self.w, step=step)
+            tf.summary.image('encoded', fake_image, step=step)
         return
 
 
@@ -246,12 +262,12 @@ def main():
 
     abs_path = os.path.dirname(os.path.abspath(__file__))
     encode_params = {
-        'target_image_fn': os.path.join(abs_path, './00011.png'),
         'image_size': 256,
         'generator_ckpt_dir': os.path.join(abs_path, '../official-converted'),
+        'lpips_ckpt_dir': os.path.join(abs_path, 'encoder_models'),
         'output_dir': os.path.join(abs_path, './encode_results', 'on_w'),
+        'results_on_tensorboard': False,
 
-        # image2stylegan config
         'optimizer': tf.keras.optimizers.Adam(0.01, beta_1=0.9, beta_2=0.999, epsilon=1e-8),
         'n_train_step': 1000,
         'lambda_percept': 1.0,
@@ -259,6 +275,7 @@ def main():
     }
 
     image_encoder = EncodeImage(encode_params)
+    image_encoder.set_target_image(os.path.join(abs_path, './00011.png'))
     image_encoder.encode_image()
     return
 
