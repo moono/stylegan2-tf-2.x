@@ -380,8 +380,8 @@ def main():
     test_y = np.ones((batch_size, g_params_with_label['labels_dim']), dtype=np.float32)
 
     generator = Generator(g_params_with_label)
-    fake_images1 = generator([test_z, test_y], training=True)
-    fake_images2 = generator([test_z, test_y], training=False)
+    fake_images1, _ = generator([test_z, test_y], training=True)
+    fake_images2, _ = generator([test_z, test_y], training=False)
     generator.summary()
 
     print(fake_images1.shape)
