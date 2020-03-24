@@ -182,7 +182,7 @@ def convert_official_weights():
     image_out, _ = g_clone([latents, test_labels], training=False, truncation_psi=0.5)
     image_out = postprocess_images(image_out)
     image_out = image_out.numpy()
-    Image.fromarray(image_out[0], 'RGB').save('seed_{}.png'.format(seed))
+    Image.fromarray(image_out[0], 'RGB').save('seed{}.png'.format(seed))
 
     # save
     ckpt_dir = './official-converted'
@@ -228,7 +228,7 @@ def test_generator():
     image_out, _ = g_clone([latents, test_labels], training=False, truncation_psi=0.5)
     image_out = postprocess_images(image_out)
     image_out = image_out.numpy()
-    Image.fromarray(image_out[0], 'RGB').save('seed_{}_restored.png'.format(seed))
+    Image.fromarray(image_out[0], 'RGB').save('seed{}-restored.png'.format(seed))
     return
 
 

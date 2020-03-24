@@ -12,10 +12,20 @@
 | Fast optimized bias / activation / bilinear filtering (cuda compiled code) | - |
 | Single GPU training |:heavy_check_mark: |
 | Multi GPU distributed training | - |
+| Inference from official Generator weights | :heavy_check_mark: |
 
+## Inference from official weights
+| Official repo result | Official weight copied result from this repo |
+| :---: | :---: |
+| ![official_result] | ![restored_result] |
 
 ## Current result
 | at 284k train step | Screenshot |
 | :--- |  :---: |
-| **Loss** |  ![losses](assets/tf-keras-stylegan2-loss.PNG) |
-| **Generation output**<br><br>Real Images<br><br>phi=0.0<br><br>phi=0.5<br><br>phi=0.7<br><br>phi=1.0  | ![losses](assets/tf-keras-stylegan2-fake-images.PNG) |
+| **Loss** |  ![loss_tensorboard] |
+| **Generation output**<br><br>Real Images<br><br>phi=0.0<br><br>phi=0.5<br><br>phi=0.7<br><br>phi=1.0  | ![generation_tensorboard] |
+
+[loss_tensorboard]: assets/tf-keras-stylegan2-loss.PNG
+[generation_tensorboard]: assets/tf-keras-stylegan2-fake-images.PNG
+[official_result]: assets/seed6600-official.png
+[restored_result]: assets/seed6600-restored.png
