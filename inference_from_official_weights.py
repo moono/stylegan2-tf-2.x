@@ -35,7 +35,7 @@ from stylegan2.generator import Generator
 
 def handle_mapping(w_name):
     def extract_info(name):
-        splitted = name.split('/')[2]
+        splitted = name.split('/')[1]
         val = splitted.split('_')[1]
         return val
 
@@ -49,8 +49,8 @@ def handle_mapping(w_name):
 
 def handle_synthesis(w_name):
     def extract_info(name):
-        r = (name.split('/')[2]).split('x')[1]
-        d = name.split('/')[3]
+        r = (name.split('/')[1]).split('x')[1]
+        d = name.split('/')[2]
         return r, d
 
     def to_rgb_layer(name, r):
