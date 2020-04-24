@@ -87,7 +87,7 @@ class DiscriminatorLastBlock(tf.keras.layers.Layer):
         # dense_1
         self.dense_1 = Dense(self.n_f1, gain=self.gain, lrmul=self.lrmul, name='dense_1')
         self.apply_bias_1 = Bias(self.lrmul, name='bias_1')
-        self.leaky_relu_1 = LeakyReLU(name='lrelu_0')
+        self.leaky_relu_1 = LeakyReLU(name='lrelu_1')
 
     def call(self, x, training=None, mask=None):
         x = self.minibatch_std(x)
