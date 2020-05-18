@@ -78,7 +78,6 @@ class Mapping(tf.keras.layers.Layer):
             'w_dim': self.w_dim,
             'labels_dim': self.labels_dim,
             'n_mapping': self.n_mapping,
-            'n_broadcast': self.n_broadcast,
             'gain': self.gain,
             'lrmul': self.lrmul,
         })
