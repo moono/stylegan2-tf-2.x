@@ -21,7 +21,7 @@ class SynthesisConstBlock(tf.keras.layers.Layer):
                                     demodulate=True, resample_kernel=[1, 3, 3, 1], gain=self.gain, lrmul=self.lrmul,
                                     fused_modconv=True, name='conv')
         self.apply_noise = Noise(name='noise')
-        self.apply_bias_act = BiasAct(lrmul=self.lrmul, act='lrelu', name='bias_act')
+        self.apply_bias_act = BiasAct(lrmul=self.lrmul, act='lrelu', name='bias')
 
     def build(self, input_shape):
         # starting const variable
@@ -67,14 +67,14 @@ class SynthesisBlock(tf.keras.layers.Layer):
                                       demodulate=True, resample_kernel=[1, 3, 3, 1], gain=self.gain, lrmul=self.lrmul,
                                       fused_modconv=True, name='conv_0')
         self.apply_noise_0 = Noise(name='noise_0')
-        self.apply_bias_act_0 = BiasAct(lrmul=self.lrmul, act='lrelu', name='bias_act_0')
+        self.apply_bias_act_0 = BiasAct(lrmul=self.lrmul, act='lrelu', name='bias_0')
 
         # conv block
         self.conv_1 = ModulatedConv2D(in_fmaps=self.fmaps, fmaps=self.fmaps, kernel=3, up=False, down=False,
                                       demodulate=True, resample_kernel=[1, 3, 3, 1], gain=self.gain, lrmul=self.lrmul,
                                       fused_modconv=True, name='conv_1')
         self.apply_noise_1 = Noise(name='noise_1')
-        self.apply_bias_act_1 = BiasAct(lrmul=self.lrmul, act='lrelu', name='bias_act_1')
+        self.apply_bias_act_1 = BiasAct(lrmul=self.lrmul, act='lrelu', name='bias_1')
 
     def call(self, inputs, training=None, mask=None):
         x, w0, w1 = inputs
