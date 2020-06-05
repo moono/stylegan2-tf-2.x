@@ -232,7 +232,7 @@ def test_generator():
 def main():
     allow_memory_growth()
 
-    # convert_official_weights()
+    convert_official_weights()
     test_generator()
     return
 
