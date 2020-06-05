@@ -2,8 +2,7 @@ import tensorflow as tf
 
 from stylegan2.layers.embedding import LabelEmbedding
 from stylegan2.layers.dense import Dense
-from stylegan2.layers.bias import Bias
-from stylegan2.layers.leaky_relu import LeakyReLU
+from stylegan2.layers.bias_act import BiasAct
 
 
 class Mapping(tf.keras.layers.Layer):
@@ -21,12 +20,10 @@ class Mapping(tf.keras.layers.Layer):
         self.normalize = tf.keras.layers.Lambda(lambda x: x * tf.math.rsqrt(tf.reduce_mean(tf.square(x), axis=1, keepdims=True) + 1e-8))
 
         self.dense_layers = list()
-        self.bias_layers = list()
-        self.act_layers = list()
+        self.bias_act_layers = list()
         for ii in range(self.n_mapping):
             self.dense_layers.append(Dense(w_dim, gain=self.gain, lrmul=self.lrmul, name='dense_{:d}'.format(ii)))
-            self.bias_layers.append(Bias(lrmul=self.lrmul, n_dims=2, name='bias_{:d}'.format(ii)))
-            self.act_layers.append(LeakyReLU(name='lrelu_{:d}'.format(ii)))
+            self.bias_act_layers.append(BiasAct(lrmul=self.lrmul, n_dims=2, act='lrelu', name='bias_act_{:d}'.format(ii)))
 
     def call(self, inputs, training=None, mask=None):
         latents, labels = inputs
@@ -41,10 +38,9 @@ class Mapping(tf.keras.layers.Layer):
         x = self.normalize(x)
 
         # apply mapping blocks
-        for dense, apply_bias, leaky_relu in zip(self.dense_layers, self.bias_layers, self.act_layers):
+        for dense, apply_bias_act in zip(self.dense_layers, self.bias_act_layers):
             x = dense(x)
-            x = apply_bias(x)
-            x = leaky_relu(x)
+            x = apply_bias_act(x)
 
         return x
 
