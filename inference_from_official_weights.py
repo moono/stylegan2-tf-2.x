@@ -32,6 +32,7 @@ import tensorflow as tf
 from PIL import Image
 from stylegan2.utils import postprocess_images
 from stylegan2.generator import Generator
+from tf_utils.utils import allow_memory_growth
 
 
 def handle_mapping(w_name):
@@ -234,7 +235,9 @@ def test_generator():
 
 
 def main():
-    convert_official_weights()
+    allow_memory_growth()
+
+    # convert_official_weights()
     test_generator()
     return
 

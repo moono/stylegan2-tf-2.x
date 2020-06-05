@@ -1,7 +1,11 @@
 import numpy as np
 import tensorflow as tf
 
-from stylegan2.custom_layers import Dense, ResizeConv2D, Bias, LeakyReLU, MinibatchStd
+from stylegan2.layers.dense import Dense
+from stylegan2.layers.bias import Bias
+from stylegan2.layers.leaky_relu import LeakyReLU
+from stylegan2.layers.resize_conv import ResizeConv2D
+from stylegan2.layers.mini_batch_std import MinibatchStd
 
 
 class FromRGB(tf.keras.layers.Layer):
@@ -11,7 +15,7 @@ class FromRGB(tf.keras.layers.Layer):
 
         self.conv = ResizeConv2D(fmaps=self.fmaps, kernel=1, gain=1.0, lrmul=1.0,
                                  up=False, down=False, resample_kernel=None, name='conv')
-        self.apply_bias = Bias(lrmul=1.0, name='bias')
+        self.apply_bias = Bias(lrmul=1.0, n_dims=4, name='bias')
         self.leaky_relu = LeakyReLU(name='lrelu')
 
     def call(self, inputs, training=None, mask=None):
@@ -34,13 +38,13 @@ class DiscriminatorBlock(tf.keras.layers.Layer):
         # conv_0
         self.conv_0 = ResizeConv2D(fmaps=self.n_f0, kernel=3, gain=self.gain, lrmul=self.lrmul,
                                    up=False, down=False, resample_kernel=None, name='conv_0')
-        self.apply_bias_0 = Bias(self.lrmul, name='bias_0')
+        self.apply_bias_0 = Bias(self.lrmul, n_dims=4, name='bias_0')
         self.leaky_relu_0 = LeakyReLU(name='lrelu_0')
 
         # conv_1 down
         self.conv_1 = ResizeConv2D(fmaps=self.n_f1, kernel=3, gain=self.gain, lrmul=self.lrmul,
                                    up=False, down=True, resample_kernel=[1, 3, 3, 1], name='conv_1')
-        self.apply_bias_1 = Bias(self.lrmul, name='bias_1')
+        self.apply_bias_1 = Bias(self.lrmul, n_dims=4, name='bias_1')
         self.leaky_relu_1 = LeakyReLU(name='lrelu_1')
 
         # resnet skip
@@ -81,12 +85,12 @@ class DiscriminatorLastBlock(tf.keras.layers.Layer):
         # conv_0
         self.conv_0 = ResizeConv2D(fmaps=self.n_f0, kernel=3, gain=self.gain, lrmul=self.lrmul,
                                    up=False, down=False, resample_kernel=None, name='conv_0')
-        self.apply_bias_0 = Bias(self.lrmul, name='bias_0')
+        self.apply_bias_0 = Bias(self.lrmul, n_dims=4, name='bias_0')
         self.leaky_relu_0 = LeakyReLU(name='lrelu_0')
 
         # dense_1
         self.dense_1 = Dense(self.n_f1, gain=self.gain, lrmul=self.lrmul, name='dense_1')
-        self.apply_bias_1 = Bias(self.lrmul, name='bias_1')
+        self.apply_bias_1 = Bias(self.lrmul, n_dims=4, name='bias_1')
         self.leaky_relu_1 = LeakyReLU(name='lrelu_1')
 
     def call(self, x, training=None, mask=None):
@@ -127,7 +131,7 @@ class Discriminator(tf.keras.Model):
 
         # set last dense layer
         self.last_dense = Dense(max(self.labels_dim, 1), gain=1.0, lrmul=1.0, name='last_dense')
-        self.last_bias = Bias(lrmul=1.0, name='last_bias')
+        self.last_bias = Bias(lrmul=1.0, n_dims=2, name='last_bias')
 
     def call(self, inputs, training=None, mask=None):
         images, labels = inputs
@@ -147,6 +151,10 @@ class Discriminator(tf.keras.Model):
 
 
 def main():
+    from tf_utils.utils import allow_memory_growth
+
+    allow_memory_growth()
+
     batch_size = 4
     d_params_with_label = {
         'labels_dim': 0,

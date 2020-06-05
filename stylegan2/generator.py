@@ -3,7 +3,12 @@ import tensorflow as tf
 
 from stylegan2.utils import lerp
 from stylegan2.upfirdn_2d import setup_resample_kernel, upsample_2d
-from stylegan2.custom_layers import LabelEmbedding, Dense, Bias, LeakyReLU, Noise, FusedModConv
+from stylegan2.layers.embedding import LabelEmbedding
+from stylegan2.layers.dense import Dense
+from stylegan2.layers.bias import Bias
+from stylegan2.layers.leaky_relu import LeakyReLU
+from stylegan2.layers.noise import Noise
+from stylegan2.layers.fused_mod_conv import FusedModConv
 
 
 class ToRGB(tf.keras.layers.Layer):
@@ -12,7 +17,7 @@ class ToRGB(tf.keras.layers.Layer):
         self.in_ch = in_ch
         self.conv = FusedModConv(fmaps=3, kernel=1, gain=1.0, lrmul=1.0, style_fmaps=self.in_ch,
                                  demodulate=False, up=False, down=False, resample_kernel=None, name='conv')
-        self.apply_bias = Bias(lrmul=1.0, name='bias')
+        self.apply_bias = Bias(lrmul=1.0, n_dims=4, name='bias')
 
     def call(self, inputs, training=None, mask=None):
         x, w = inputs
@@ -49,7 +54,7 @@ class Mapping(tf.keras.layers.Layer):
         self.act_layers = list()
         for ii in range(self.n_mapping):
             self.dense_layers.append(Dense(w_dim, gain=self.gain, lrmul=self.lrmul, name='dense_{:d}'.format(ii)))
-            self.bias_layers.append(Bias(lrmul=self.lrmul, name='bias_{:d}'.format(ii)))
+            self.bias_layers.append(Bias(lrmul=self.lrmul, n_dims=2,  name='bias_{:d}'.format(ii)))
             self.act_layers.append(LeakyReLU(name='lrelu_{:d}'.format(ii)))
 
     def call(self, inputs, training=None, mask=None):
@@ -97,7 +102,7 @@ class SynthesisConstBlock(tf.keras.layers.Layer):
         self.conv = FusedModConv(fmaps=self.fmaps, kernel=3, gain=self.gain, lrmul=self.lrmul, style_fmaps=self.fmaps,
                                  demodulate=True, up=False, down=False, resample_kernel=[1, 3, 3, 1], name='conv')
         self.apply_noise = Noise(name='noise')
-        self.apply_bias = Bias(lrmul=self.lrmul, name='bias')
+        self.apply_bias = Bias(lrmul=self.lrmul, n_dims=4, name='bias')
         self.leaky_relu = LeakyReLU(name='lrelu')
 
     def build(self, input_shape):
@@ -144,14 +149,14 @@ class SynthesisBlock(tf.keras.layers.Layer):
         self.conv_0 = FusedModConv(fmaps=self.fmaps, kernel=3, gain=self.gain, lrmul=self.lrmul, style_fmaps=self.in_ch,
                                    demodulate=True, up=True, down=False, resample_kernel=[1, 3, 3, 1], name='conv_0')
         self.apply_noise_0 = Noise(name='noise_0')
-        self.apply_bias_0 = Bias(lrmul=self.lrmul, name='bias_0')
+        self.apply_bias_0 = Bias(lrmul=self.lrmul, n_dims=4, name='bias_0')
         self.leaky_relu_0 = LeakyReLU(name='lrelu_0')
 
         # conv block
         self.conv_1 = FusedModConv(fmaps=self.fmaps, kernel=3, gain=self.gain, lrmul=self.lrmul, style_fmaps=self.fmaps,
                                    demodulate=True, up=False, down=False, resample_kernel=[1, 3, 3, 1], name='conv_1')
         self.apply_noise_1 = Noise(name='noise_1')
-        self.apply_bias_1 = Bias(lrmul=self.lrmul, name='bias_1')
+        self.apply_bias_1 = Bias(lrmul=self.lrmul, n_dims=4, name='bias_1')
         self.leaky_relu_1 = LeakyReLU(name='lrelu_1')
 
     def call(self, inputs, training=None, mask=None):
