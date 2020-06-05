@@ -133,7 +133,7 @@ def get_plugin(cuda_file):
 
         # Hash build configuration.
         md5.update(('nvcc_cmd: ' + nvcc_cmd).encode('utf-8') + b'\n')
-        md5.update(('tf.VERSION: ' + tf.VERSION).encode('utf-8') + b'\n')
+        md5.update(('tf.VERSION: ' + tf.version.VERSION).encode('utf-8') + b'\n')
         md5.update(('cuda_cache_version_tag: ' + cuda_cache_version_tag).encode('utf-8') + b'\n')
 
         # Compile if not already compiled.

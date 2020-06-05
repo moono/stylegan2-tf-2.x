@@ -69,8 +69,8 @@ def _upfirdn_2d_ref(x, k, upx, upy, downx, downy, padx0, padx1, pady0, pady1):
     x = tf.convert_to_tensor(x)
     k = np.asarray(k, dtype=np.float32)
     assert x.shape.rank == 4
-    inH = x.shape[1].value
-    inW = x.shape[2].value
+    inH = x.shape[1]
+    inW = x.shape[2]
     minorDim = _shape(x, 3)
     kernelH, kernelW = k.shape
     assert inW >= 1 and inH >= 1
@@ -87,7 +87,7 @@ def _upfirdn_2d_ref(x, k, upx, upy, downx, downy, padx0, padx1, pady0, pady1):
 
     # Pad (crop if negative).
     x = tf.pad(x, [[0, 0], [max(pady0, 0), max(pady1, 0)], [max(padx0, 0), max(padx1, 0)], [0, 0]])
-    x = x[:, max(-pady0, 0) : x.shape[1].value - max(-pady1, 0), max(-padx0, 0) : x.shape[2].value - max(-padx1, 0), :]
+    x = x[:, max(-pady0, 0) : x.shape[1] - max(-pady1, 0), max(-padx0, 0) : x.shape[2] - max(-padx1, 0), :]
 
     # Convolve with filter.
     x = tf.transpose(x, [0, 3, 1, 2])
@@ -260,8 +260,8 @@ def upsample_conv_2d(x, w, k=None, factor=2, gain=1, data_format='NCHW', impl='c
     # Check weight shape.
     w = tf.convert_to_tensor(w)
     assert w.shape.rank == 4
-    convH = w.shape[0].value
-    convW = w.shape[1].value
+    convH = w.shape[0]
+    convW = w.shape[1]
     inC = _shape(w, 2)
     outC = _shape(w, 3)
     assert convW == convH
@@ -336,7 +336,7 @@ def conv_downsample_2d(x, w, k=None, factor=2, gain=1, data_format='NCHW', impl=
 
 def _shape(tf_expr, dim_idx):
     if tf_expr.shape.rank is not None:
-        dim = tf_expr.shape[dim_idx].value
+        dim = tf_expr.shape[dim_idx]
         if dim is not None:
             return dim
     return tf.shape(tf_expr)[dim_idx]
