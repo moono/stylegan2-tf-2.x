@@ -29,6 +29,7 @@ class Generator(tf.keras.Model):
         # w_avg
         self.w_avg = tf.Variable(tf.zeros(shape=[self.w_dim], dtype=tf.dtypes.float32), name='w_avg', trainable=False)
 
+    @tf.function
     def set_as_moving_average_of(self, src_net, beta=0.99, beta_nontrainable=0.0):
         def split_first_name(name):
             splitted = name.split('/')
@@ -93,6 +94,7 @@ class Generator(tf.keras.Model):
         truncated_w_broadcasted = lerp(self.w_avg, w_broadcasted, truncation_coefs)
         return truncated_w_broadcasted
 
+    # @tf.function
     def call(self, inputs, truncation_psi=1.0, truncation_cutoff=None, training=None, mask=None):
         latents, labels = inputs
 
