@@ -94,7 +94,7 @@ class Generator(tf.keras.Model):
         truncated_w_broadcasted = lerp(self.w_avg, w_broadcasted, truncation_coefs)
         return truncated_w_broadcasted
 
-    # @tf.function
+    @tf.function
     def call(self, inputs, truncation_psi=1.0, truncation_cutoff=None, training=None, mask=None):
         latents, labels = inputs
 
