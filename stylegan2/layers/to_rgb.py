@@ -1,22 +1,22 @@
 import tensorflow as tf
 
-from stylegan2.layers.bias import Bias
-from stylegan2.layers.fused_mod_conv import FusedModConv
+from stylegan2.layers.modulated_conv2d import ModulatedConv2D
+from stylegan2.layers.bias_act import BiasAct
 
 
 class ToRGB(tf.keras.layers.Layer):
     def __init__(self, in_ch, **kwargs):
         super(ToRGB, self).__init__(**kwargs)
         self.in_ch = in_ch
-        self.conv = FusedModConv(fmaps=3, kernel=1, gain=1.0, lrmul=1.0, style_fmaps=self.in_ch,
-                                 demodulate=False, up=False, down=False, resample_kernel=None, name='conv')
-        self.apply_bias = Bias(lrmul=1.0, n_dims=4, name='bias')
+        self.conv = ModulatedConv2D(in_fmaps=in_ch, fmaps=3, kernel=1, up=False, down=False, demodulate=False,
+                                    resample_kernel=None, gain=1.0, lrmul=1.0, fused_modconv=True, name='conv')
+        self.apply_bias_act = BiasAct(lrmul=1.0, act='linear', name='bias_act')
 
     def call(self, inputs, training=None, mask=None):
         x, w = inputs
 
         x = self.conv([x, w])
-        x = self.apply_bias(x)
+        x = self.apply_bias_act(x)
         return x
 
     def get_config(self):

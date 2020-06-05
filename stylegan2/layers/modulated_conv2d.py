@@ -23,7 +23,7 @@ class ModulatedConv2D(tf.keras.layers.Layer):
 
         # self.factor = 2
         self.mod_dense = Dense(self.in_fmaps, gain=1.0, lrmul=1.0, name='mod_dense')
-        self.mod_bias_act = BiasAct(lrmul=1.0, n_dims=2, act='linear', name='mod_bias')
+        self.mod_bias_act = BiasAct(lrmul=1.0, act='linear', name='mod_bias')
 
     def build(self, input_shape):
         # x_shape, w_shape = input_shape[0], input_shape[1]

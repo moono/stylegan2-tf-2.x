@@ -23,7 +23,7 @@ class Mapping(tf.keras.layers.Layer):
         self.bias_act_layers = list()
         for ii in range(self.n_mapping):
             self.dense_layers.append(Dense(w_dim, gain=self.gain, lrmul=self.lrmul, name='dense_{:d}'.format(ii)))
-            self.bias_act_layers.append(BiasAct(lrmul=self.lrmul, n_dims=2, act='lrelu', name='bias_act_{:d}'.format(ii)))
+            self.bias_act_layers.append(BiasAct(lrmul=self.lrmul, act='lrelu', name='bias_act_{:d}'.format(ii)))
 
     def call(self, inputs, training=None, mask=None):
         latents, labels = inputs
