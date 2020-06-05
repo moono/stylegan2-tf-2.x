@@ -5,6 +5,7 @@ from stylegan2.layers.modulated_conv2d import ModulatedConv2D
 from stylegan2.layers.to_rgb import ToRGB
 from stylegan2.layers.synthesis_block import Synthesis
 from stylegan2.generator import Generator
+from stylegan2.discriminator import Discriminator
 
 
 def main():
@@ -29,11 +30,17 @@ def main():
         'resolutions': resolutions,
         'featuremaps': featuremaps,
     }
+    d_params = {
+        'labels_dim': l_dim,
+        'resolutions': resolutions,
+        'featuremaps': featuremaps,
+    }
 
     z = tf.random.normal(shape=[batch_size, z_dim])
     l = tf.random.normal(shape=[batch_size, l_dim])
     w = tf.random.normal(shape=[batch_size, w_dim])
     dw = tf.random.normal(shape=[batch_size, n_broadcast, w_dim])
+    i = tf.random.normal((batch_size, 3, resolutions[-1], resolutions[-1]))
     x = tf.random.normal(shape=[batch_size, in_channel, feature_size, feature_size])
 
     # conv = ModulatedConv2D(in_channel, out_channel, kernel=3, up=True, down=False, demodulate=True,
@@ -53,19 +60,27 @@ def main():
     # out = synthesis(dw)
     # print(out)
 
-    generator = Generator(g_params)
-    fake_images1, _ = generator([z, l], training=True)
-    fake_images2, _ = generator([z, l], training=False)
-    generator.summary()
-
-    print(fake_images1.shape)
-
-    print()
+    # generator = Generator(g_params)
+    # fake_images1, _ = generator([z, l], training=True)
+    # fake_images2, _ = generator([z, l], training=False)
+    # generator.summary()
+    #
+    # print(fake_images1.shape)
+    # print()
     # for v in generator.variables:
     #     print('{}: {}'.format(v.name, v.shape))
 
-    for w in generator.weights:
-        print('{}: {}'.format(w.name, w.shape))
+    discriminator = Discriminator(d_params)
+    scores1 = discriminator([i, l], training=True)
+    scores2 = discriminator([i, l], training=False)
+    discriminator.summary()
+
+    print(scores1.shape)
+    print(scores2.shape)
+
+    print()
+    for v in discriminator.variables:
+        print('{}: {}'.format(v.name, v.shape))
     return
 
 

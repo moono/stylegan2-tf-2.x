@@ -10,13 +10,13 @@ class ToRGB(tf.keras.layers.Layer):
         self.in_ch = in_ch
         self.conv = ModulatedConv2D(in_fmaps=in_ch, fmaps=3, kernel=1, up=False, down=False, demodulate=False,
                                     resample_kernel=None, gain=1.0, lrmul=1.0, fused_modconv=True, name='conv')
-        self.apply_bias_act = BiasAct(lrmul=1.0, act='linear', name='bias_act')
+        self.apply_bias = BiasAct(lrmul=1.0, act='linear', name='bias')
 
     def call(self, inputs, training=None, mask=None):
         x, w = inputs
 
         x = self.conv([x, w])
-        x = self.apply_bias_act(x)
+        x = self.apply_bias(x)
         return x
 
     def get_config(self):
