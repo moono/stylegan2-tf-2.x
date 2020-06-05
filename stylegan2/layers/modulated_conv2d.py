@@ -34,17 +34,6 @@ class ModulatedConv2D(tf.keras.layers.Layer):
         w_init = tf.random.normal(shape=weight_shape, mean=0.0, stddev=init_std)
         self.w = tf.Variable(w_init, name='w', trainable=True)
 
-    def modulate(self, y):
-        # [BkkIO] Introduce minibatch dimension
-        w = self.runtime_coef * self.w
-        ww = w[tf.newaxis]
-
-        # Modulate
-        s = self.mod_dense(y)       # [BI]
-        s = self.mod_bias(s) + 1.0  # [BI]
-        ww *= tf.cast(s[:, tf.newaxis, tf.newaxis, :, tf.newaxis], w.dtype)  # [BkkIO]
-        return ww
-
     def call(self, inputs, training=None, mask=None):
         x, y = inputs
         # height, width = tf.shape(x)[2], tf.shape(x)[3]
@@ -55,7 +44,7 @@ class ModulatedConv2D(tf.keras.layers.Layer):
 
         # Modulate
         s = self.mod_dense(y)           # [BI]
-        s = self.mod_bias_act(s) + 1.0  # [BI]
+        s = self.mod_bias(s) + 1.0      # [BI]
         ww *= s[:, tf.newaxis, tf.newaxis, :, tf.newaxis]  # [BkkIO]
 
         if self.demodulate:
