@@ -1,11 +1,10 @@
 import tensorflow as tf
 
-from stylegan2.layers.bias import Bias
-from stylegan2.layers.leaky_relu import LeakyReLU
+from stylegan2.layers.modulated_conv2d import ModulatedConv2D
+from stylegan2.layers.bias_act import BiasAct
 from stylegan2.layers.noise import Noise
-from stylegan2.layers.fused_mod_conv import FusedModConv
 from stylegan2.layers.to_rgb import ToRGB
-from stylegan2.layers.upfirdn_2d import setup_resample_kernel, upsample_2d
+from stylegan2.layers.cuda.upfirdn_2d import upsample_2d
 
 
 class SynthesisConstBlock(tf.keras.layers.Layer):
@@ -18,11 +17,11 @@ class SynthesisConstBlock(tf.keras.layers.Layer):
         self.lrmul = 1.0
 
         # conv block
-        self.conv = FusedModConv(fmaps=self.fmaps, kernel=3, gain=self.gain, lrmul=self.lrmul, style_fmaps=self.fmaps,
-                                 demodulate=True, up=False, down=False, resample_kernel=[1, 3, 3, 1], name='conv')
+        self.conv = ModulatedConv2D(in_fmaps=self.fmaps, fmaps=self.fmaps, kernel=3, up=False, down=False,
+                                    demodulate=True, resample_kernel=[1, 3, 3, 1], gain=self.gain, lrmul=self.lrmul,
+                                    fused_modconv=True, name='conv')
         self.apply_noise = Noise(name='noise')
-        self.apply_bias = Bias(lrmul=self.lrmul, n_dims=4, name='bias')
-        self.leaky_relu = LeakyReLU(name='lrelu')
+        self.apply_bias_act = BiasAct(lrmul=self.lrmul, act='lrelu', name='bias_act')
 
     def build(self, input_shape):
         # starting const variable
@@ -40,8 +39,7 @@ class SynthesisConstBlock(tf.keras.layers.Layer):
         # conv block
         x = self.conv([x, w0])
         x = self.apply_noise(x)
-        x = self.apply_bias(x)
-        x = self.leaky_relu(x)
+        x = self.apply_bias_act(x)
         return x
 
     def get_config(self):
@@ -65,18 +63,18 @@ class SynthesisBlock(tf.keras.layers.Layer):
         self.lrmul = 1.0
 
         # conv0 up
-        self.conv_0 = FusedModConv(fmaps=self.fmaps, kernel=3, gain=self.gain, lrmul=self.lrmul, style_fmaps=self.in_ch,
-                                   demodulate=True, up=True, down=False, resample_kernel=[1, 3, 3, 1], name='conv_0')
+        self.conv_0 = ModulatedConv2D(in_fmaps=self.in_ch, fmaps=self.fmaps, kernel=3, up=True, down=False,
+                                      demodulate=True, resample_kernel=[1, 3, 3, 1], gain=self.gain, lrmul=self.lrmul,
+                                      fused_modconv=True, name='conv_0')
         self.apply_noise_0 = Noise(name='noise_0')
-        self.apply_bias_0 = Bias(lrmul=self.lrmul, n_dims=4, name='bias_0')
-        self.leaky_relu_0 = LeakyReLU(name='lrelu_0')
+        self.apply_bias_act_0 = BiasAct(lrmul=self.lrmul, act='lrelu', name='bias_act_0')
 
         # conv block
-        self.conv_1 = FusedModConv(fmaps=self.fmaps, kernel=3, gain=self.gain, lrmul=self.lrmul, style_fmaps=self.fmaps,
-                                   demodulate=True, up=False, down=False, resample_kernel=[1, 3, 3, 1], name='conv_1')
+        self.conv_1 = ModulatedConv2D(in_fmaps=self.fmaps, fmaps=self.fmaps, kernel=3, up=False, down=False,
+                                      demodulate=True, resample_kernel=[1, 3, 3, 1], gain=self.gain, lrmul=self.lrmul,
+                                      fused_modconv=True, name='conv_1')
         self.apply_noise_1 = Noise(name='noise_1')
-        self.apply_bias_1 = Bias(lrmul=self.lrmul, n_dims=4, name='bias_1')
-        self.leaky_relu_1 = LeakyReLU(name='lrelu_1')
+        self.apply_bias_act_1 = BiasAct(lrmul=self.lrmul, act='lrelu', name='bias_act_1')
 
     def call(self, inputs, training=None, mask=None):
         x, w0, w1 = inputs
@@ -84,14 +82,12 @@ class SynthesisBlock(tf.keras.layers.Layer):
         # conv0 up
         x = self.conv_0([x, w0])
         x = self.apply_noise_0(x)
-        x = self.apply_bias_0(x)
-        x = self.leaky_relu_0(x)
+        x = self.apply_bias_act_0(x)
 
         # conv block
         x = self.conv_1([x, w1])
         x = self.apply_noise_1(x)
-        x = self.apply_bias_1(x)
-        x = self.leaky_relu_1(x)
+        x = self.apply_bias_act_1(x)
         return x
 
     def get_config(self):
@@ -111,7 +107,7 @@ class Synthesis(tf.keras.layers.Layer):
         super(Synthesis, self).__init__(name=name, **kwargs)
         self.resolutions = resolutions
         self.featuremaps = featuremaps
-        self.k = setup_resample_kernel(k=[1, 3, 3, 1])
+        self.resample_kernel = [1, 3, 3, 1]
 
         # initial layer
         res, n_f = resolutions[0], featuremaps[0]
@@ -143,7 +139,7 @@ class Synthesis(tf.keras.layers.Layer):
             w2 = w_broadcasted[:, layer_index + 2]
 
             x = block([x, w0, w1])
-            y = upsample_2d(y, self.k, factor=2, gain=1.0)
+            y = upsample_2d(y, self.resample_kernel, factor=2, gain=1.0)
             y = y + torgb([x, w2])
 
             layer_index += 2
@@ -156,6 +152,6 @@ class Synthesis(tf.keras.layers.Layer):
         config.update({
             'resolutions': self.resolutions,
             'featuremaps': self.featuremaps,
-            'k': self.k,
+            'resample_kernel': self.resample_kernel,
         })
         return config

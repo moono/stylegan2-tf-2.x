@@ -6,8 +6,8 @@ from stylegan2.layers.bias_act import BiasAct
 
 
 class Mapping(tf.keras.layers.Layer):
-    def __init__(self, w_dim, labels_dim, n_mapping, **kwargs):
-        super(Mapping, self).__init__(**kwargs)
+    def __init__(self, w_dim, labels_dim, n_mapping, name, **kwargs):
+        super(Mapping, self).__init__(name=name, **kwargs)
         self.w_dim = w_dim
         self.labels_dim = labels_dim
         self.n_mapping = n_mapping
