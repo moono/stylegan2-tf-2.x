@@ -1,4 +1,3 @@
-import numpy as np
 import tensorflow as tf
 
 from stylegan2.layers.commons import compute_runtime_coef
@@ -12,8 +11,7 @@ class Dense(tf.keras.layers.Layer):
         self.lrmul = lrmul
 
     def build(self, input_shape):
-        # assert len(input_shape) == 2 or len(input_shape) == 4
-        fan_in = np.prod(input_shape[1:])
+        fan_in = tf.reduce_prod(input_shape[1:])
         weight_shape = [fan_in, self.fmaps]
         init_std, self.runtime_coef = compute_runtime_coef(weight_shape, self.gain, self.lrmul)
 
@@ -23,7 +21,7 @@ class Dense(tf.keras.layers.Layer):
     def call(self, inputs, training=None, mask=None):
         weight = self.runtime_coef * self.w
 
-        c = tf.reduce_prod(inputs[1:])
+        c = tf.reduce_prod(tf.shape(inputs)[1:])
         x = tf.reshape(inputs, shape=[-1, c])
         x = tf.matmul(x, weight)
         return x
