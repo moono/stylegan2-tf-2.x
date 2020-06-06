@@ -31,7 +31,8 @@ import tensorflow as tf
 
 from PIL import Image
 from stylegan2.utils import postprocess_images
-from stylegan2.generator import Generator
+# from stylegan2.generator import Generator
+from load_models import load_generator
 from tf_utils.utils import allow_memory_growth
 
 
@@ -152,22 +153,7 @@ def check_shape(name_mapper, official_vars):
 
 
 def convert_official_weights():
-    # prepare variables & construct generator
-    g_params = {
-        'z_dim': 512,
-        'w_dim': 512,
-        'labels_dim': 0,
-        'n_mapping': 8,
-        'resolutions': [  4,   8,  16,  32,  64, 128, 256, 512, 1024],
-        'featuremaps': [512, 512, 512, 512, 512, 256, 128,  64,   32],
-    }
-    g_clone = Generator(g_params)
-
-    # finalize model (build)
-    test_latent = tf.ones((1, g_params['z_dim']), dtype=np.float32)
-    test_labels = tf.ones((1, g_params['labels_dim']), dtype=np.float32)
-    _ = g_clone([test_latent, test_labels], training=False)
-    _ = g_clone([test_latent, test_labels], training=True)
+    g_clone = load_generator(is_g_clone=True)
 
     # restore official ones to current implementation
     official_checkpoint = tf.train.latest_checkpoint('./official-pretrained')
@@ -192,37 +178,16 @@ def convert_official_weights():
 
 
 def test_generator():
-    # prepare variables & construct generator
-    g_params = {
-        'z_dim': 512,
-        'w_dim': 512,
-        'labels_dim': 0,
-        'n_mapping': 8,
-        'resolutions': [4, 8, 16, 32, 64, 128, 256, 512, 1024],
-        'featuremaps': [512, 512, 512, 512, 512, 256, 128, 64, 32],
-    }
-    g_clone = Generator(g_params)
-
-    # finalize model (build)
-    test_latent = np.ones((1, g_params['z_dim']), dtype=np.float32)
-    test_labels = np.ones((1, g_params['labels_dim']), dtype=np.float32)
-    _ = g_clone([test_latent, test_labels], training=False)
-    _ = g_clone([test_latent, test_labels], training=True)
-
-    # restore
-    ckpt_dir = './official-converted'
-    ckpt = tf.train.Checkpoint(g_clone=g_clone)
-    manager = tf.train.CheckpointManager(ckpt, ckpt_dir, max_to_keep=1)
-    ckpt.restore(manager.latest_checkpoint)
-    if manager.latest_checkpoint:
-        print('Restored from {}'.format(manager.latest_checkpoint))
+    g_clone = load_generator(is_g_clone=True, ckpt_dir='./official-converted')
 
     # test
     seed = 6600
     rnd = np.random.RandomState(seed)
-    latents = rnd.randn(1, g_params['z_dim'])
+    latents = rnd.randn(1, g_clone.z_dim)
+    labels = rnd.randn(1, g_clone.labels_dim)
     latents = latents.astype(np.float32)
-    image_out, _ = g_clone([latents, test_labels], training=False, truncation_psi=0.5)
+    labels = labels.astype(np.float32)
+    image_out, _ = g_clone([latents, labels], training=False, truncation_psi=0.5)
     image_out = postprocess_images(image_out)
     image_out = image_out.numpy()
     Image.fromarray(image_out[0], 'RGB').save('seed{}-restored.png'.format(seed))
