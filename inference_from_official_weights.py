@@ -31,9 +31,8 @@ import tensorflow as tf
 
 from PIL import Image
 from stylegan2.utils import postprocess_images
-# from stylegan2.generator import Generator
 from load_models import load_generator
-from tf_utils.utils import allow_memory_growth
+from tf_utils import allow_memory_growth
 
 
 def handle_mapping(w_name):
