@@ -186,7 +186,7 @@ def test_generator():
     labels = rnd.randn(1, g_clone.labels_dim)
     latents = latents.astype(np.float32)
     labels = labels.astype(np.float32)
-    image_out, _ = g_clone([latents, labels], training=False, truncation_psi=0.5)
+    image_out = g_clone([latents, labels], training=False, truncation_psi=0.5)
     image_out = postprocess_images(image_out)
     image_out = image_out.numpy()
     Image.fromarray(image_out[0], 'RGB').save('seed{}-restored.png'.format(seed))
