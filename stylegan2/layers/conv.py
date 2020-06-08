@@ -37,7 +37,7 @@ class Conv2D(tf.keras.layers.Layer):
         return x
 
     def get_config(self):
-        config = super(ResizeConv2D, self).get_config()
+        config = super(Conv2D, self).get_config()
         config.update({
             'fmaps': self.fmaps,
             'kernel': self.kernel,

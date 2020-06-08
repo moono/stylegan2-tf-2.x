@@ -27,32 +27,22 @@ class Generator(tf.keras.Model):
 
     def build(self, input_shape):
         # w_avg
-        self.w_avg = tf.Variable(tf.zeros(shape=[self.w_dim], dtype=tf.dtypes.float32), name='w_avg', trainable=False)
+        self.w_avg = tf.Variable(tf.zeros(shape=[self.w_dim], dtype=tf.dtypes.float32), name='w_avg', trainable=False,
+                                 synchronization=tf.VariableSynchronization.ON_READ,
+                                 aggregation=tf.VariableAggregation.ONLY_FIRST_REPLICA)
 
     @tf.function
-    def set_as_moving_average_of(self, src_net, beta=0.99, beta_nontrainable=0.0):
-        def split_first_name(name):
-            splitted = name.split('/')
-            new_name = '/'.join(splitted[1:])
-            return new_name
+    def set_as_moving_average_of(self, src_net):
+        beta, beta_nontrainable = 0.99, 0.0
 
-        for cw in self.trainable_weights:
-            cw_name = split_first_name(cw.name)
-            for sw in src_net.trainable_weights:
-                sw_name = split_first_name(sw.name)
-                if cw_name == sw_name:
-                    assert sw.shape == cw.shape
-                    cw.assign(lerp(sw, cw, beta))
-                    break
+        for cw, sw in zip(self.weights, src_net.weights):
+            assert sw.shape == cw.shape
+            # print('{} <=> {}'.format(cw.name, sw.name))
 
-        for cw in self.non_trainable_weights:
-            cw_name = split_first_name(cw.name)
-            for sw in src_net.non_trainable_weights:
-                sw_name = split_first_name(sw.name)
-                if cw_name == sw_name:
-                    assert sw.shape == cw.shape
-                    cw.assign(lerp(sw, cw, beta_nontrainable))
-                    break
+            if 'w_avg' in cw.name:
+                cw.assign(lerp(sw, cw, beta_nontrainable))
+            else:
+                cw.assign(lerp(sw, cw, beta))
         return
 
     def update_moving_average_of_w(self, w_broadcasted):
@@ -109,7 +99,7 @@ class Generator(tf.keras.Model):
             w_broadcasted = self.truncation_trick(w_broadcasted, truncation_psi, truncation_cutoff)
 
         image_out = self.synthesis(w_broadcasted)
-        return image_out, w_broadcasted
+        return image_out
 
     def compute_output_shape(self, input_shape):
         return input_shape[0][0], 3, self.resolutions[-1], self.resolutions[-1]
@@ -123,34 +113,3 @@ class Generator(tf.keras.Model):
 
         image_out.set_shape([None, 3, self.resolutions[-1], self.resolutions[-1]])
         return image_out
-
-
-def main():
-    batch_size = 1
-    g_params_with_label = {
-        'z_dim': 512,
-        'w_dim': 512,
-        'labels_dim': 0,
-        'n_mapping': 8,
-        'resolutions': [4, 8, 16, 32, 64, 128, 256, 512, 1024],
-        'featuremaps': [512, 512, 512, 512, 512, 256, 128, 64, 32],
-    }
-
-    test_z = tf.ones((batch_size, g_params_with_label['z_dim']), dtype=tf.float32)
-    test_y = tf.ones((batch_size, g_params_with_label['labels_dim']), dtype=tf.float32)
-
-    generator = Generator(g_params_with_label)
-    fake_images1, _ = generator([test_z, test_y], training=True)
-    fake_images2, _ = generator([test_z, test_y], training=False)
-    generator.summary()
-
-    print(fake_images1.shape)
-
-    print()
-    for v in generator.variables:
-        print('{}: {}'.format(v.name, v.shape))
-    return
-
-
-if __name__ == '__main__':
-    main()

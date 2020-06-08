@@ -4,6 +4,7 @@ import argparse
 import numpy as np
 import tensorflow as tf
 
+from utils import str_to_bool
 from tf_utils import allow_memory_growth
 from dataset_ffhq import get_ffhq_dataset
 from stylegan2.utils import preprocess_fit_train_image, postprocess_images, merge_batch_images
@@ -22,6 +23,7 @@ def initiate_models(g_params, d_params):
 
 class Trainer(object):
     def __init__(self, t_params, name):
+        self.use_tf_function = t_params['use_tf_function']
         self.model_base_dir = t_params['model_base_dir']
         self.global_batch_size = t_params['batch_size']
         self.n_total_image = t_params['n_total_image']
@@ -141,7 +143,7 @@ class Trainer(object):
             return mean_g_loss
 
         # wrap with tf.function
-        if True:
+        if self.use_tf_function:
             dist_d_train_step = tf.function(dist_d_train_step)
             dist_g_train_step = tf.function(dist_g_train_step)
 
@@ -258,6 +260,8 @@ def filter_resolutions_featuremaps(resolutions, featuremaps, res):
 def main():
     # global program arguments parser
     parser = argparse.ArgumentParser(description='')
+    parser.add_argument('--allow_memory_growth', type=str_to_bool, nargs='?', const=True, default=True)
+    parser.add_argument('--use_tf_function', type=str_to_bool, nargs='?', const=True, default=False)
     parser.add_argument('--model_base_dir', default='./models', type=str)
     parser.add_argument('--tfrecord_dir', default='./tfrecords', type=str)
     parser.add_argument('--train_res', default=64, type=int)
@@ -265,7 +269,8 @@ def main():
     parser.add_argument('--batch_size_per_replica', default=4, type=int)
     args = vars(parser.parse_args())
 
-    # allow_memory_growth()
+    if args['allow_memory_growth']:
+        allow_memory_growth()
 
     # network params
     resolutions = [4, 8, 16, 32, 64, 128, 256, 512, 1024]
@@ -299,6 +304,7 @@ def main():
         # training parameters
         training_parameters = {
             # global params
+            'use_tf_function': args['use_tf_function'],
             'model_base_dir': args['model_base_dir'],
 
             # network params

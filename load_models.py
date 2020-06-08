@@ -20,7 +20,7 @@ def load_generator(g_params=None, is_g_clone=False, ckpt_dir=None):
 
     # build generator model
     generator = Generator(g_params)
-    _, __ = generator([test_latent, test_labels])
+    _ = generator([test_latent, test_labels])
 
     if ckpt_dir is not None:
         if is_g_clone:
