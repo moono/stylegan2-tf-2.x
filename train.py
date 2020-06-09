@@ -139,7 +139,7 @@ class Trainer(object):
 
         def dist_g_train_step(inputs):
             per_replica_losses = strategy.experimental_run_v2(fn=self.g_train_step, args=(inputs,))
-            mean_g_loss = strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses[0], axis=None)
+            mean_g_loss = strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses, axis=None)
             return mean_g_loss
 
         # wrap with tf.function
