@@ -107,7 +107,7 @@ class Discriminator(tf.keras.Model):
         self.last_dense = Dense(max(self.labels_dim, 1), gain=1.0, lrmul=1.0, name='last_dense')
         self.last_bias = BiasAct(lrmul=1.0, act='linear', name='last_bias')
 
-    @ tf.function
+    # @ tf.function
     def call(self, inputs, training=None, mask=None):
         images, labels = inputs
 
