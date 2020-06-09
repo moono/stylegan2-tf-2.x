@@ -226,15 +226,13 @@ class Trainer(object):
         dummy_labels = tf.ones((self.n_samples, self.g_params['labels_dim']), dtype=tf.dtypes.float32)
 
         # run networks
-        fake_images_00 = self.g_clone([latents, dummy_labels], truncation_psi=0.0, training=False)
         fake_images_05 = self.g_clone([latents, dummy_labels], truncation_psi=0.5, training=False)
         fake_images_07 = self.g_clone([latents, dummy_labels], truncation_psi=0.7, training=False)
-        fake_images_10 = self.g_clone([latents, dummy_labels], truncation_psi=1.0, training=False)
 
-        # merge on batch dimension: [5 * n_samples, 3, out_res, out_res]
-        out = tf.concat([reals, fake_images_00, fake_images_05, fake_images_07, fake_images_10], axis=0)
+        # merge on batch dimension: [3 * n_samples, 3, out_res, out_res]
+        out = tf.concat([reals, fake_images_05, fake_images_07], axis=0)
 
-        # prepare for image saving: [5 * n_samples, out_res, out_res, 3]
+        # prepare for image saving: [3 * n_samples, out_res, out_res, 3]
         out = postprocess_images(out)
 
         # resize to save disk spaces: [5 * n_samples, size, size, 3]
@@ -245,7 +243,7 @@ class Trainer(object):
         out = tf.image.resize(out, size=[size, size])
 
         # make single image and add batch dimension for tensorboard: [1, 5 * size, n_samples * size, 3]
-        out = merge_batch_images(out, size, rows=5, cols=self.n_samples)
+        out = merge_batch_images(out, size, rows=3, cols=self.n_samples)
         out = np.expand_dims(out, axis=0)
         return out
 
@@ -261,7 +259,7 @@ def main():
     # global program arguments parser
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--allow_memory_growth', type=str_to_bool, nargs='?', const=True, default=True)
-    parser.add_argument('--use_tf_function', type=str_to_bool, nargs='?', const=True, default=False)
+    parser.add_argument('--use_tf_function', type=str_to_bool, nargs='?', const=True, default=True)
     parser.add_argument('--model_base_dir', default='./models', type=str)
     parser.add_argument('--tfrecord_dir', default='./tfrecords', type=str)
     parser.add_argument('--train_res', default=64, type=int)
