@@ -85,7 +85,7 @@ class Generator(tf.keras.Model):
         return truncated_w_broadcasted
 
     # @tf.function
-    def call(self, inputs, truncation_psi=1.0, truncation_cutoff=None, training=None, mask=None):
+    def call(self, inputs, ret_w_broadcasted=False, truncation_psi=1.0, truncation_cutoff=None, training=None, mask=None):
         latents, labels = inputs
 
         dlatents = self.g_mapping([latents, labels])
@@ -99,7 +99,11 @@ class Generator(tf.keras.Model):
             w_broadcasted = self.truncation_trick(w_broadcasted, truncation_psi, truncation_cutoff)
 
         image_out = self.synthesis(w_broadcasted)
-        return image_out
+
+        if ret_w_broadcasted:
+            return image_out, w_broadcasted
+        else:
+            return image_out
 
     def compute_output_shape(self, input_shape):
         return input_shape[0][0], 3, self.resolutions[-1], self.resolutions[-1]
