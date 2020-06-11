@@ -105,15 +105,15 @@ class Generator(tf.keras.Model):
         else:
             return image_out
 
-    def compute_output_shape(self, input_shape):
-        return input_shape[0][0], 3, self.resolutions[-1], self.resolutions[-1]
+    # def compute_output_shape(self, input_shape):
+    #     return input_shape[0][0], 3, self.resolutions[-1], self.resolutions[-1]
 
-    @tf.function
-    def serve(self, latents, labels, truncation_psi):
-        dlatents = self.g_mapping([latents, labels])
-        w_broadcasted = self.broadcast(dlatents)
-        w_broadcasted = self.truncation_trick(w_broadcasted, truncation_cutoff=None, truncation_psi=truncation_psi)
-        image_out = self.synthesis(w_broadcasted)
-
-        image_out.set_shape([None, 3, self.resolutions[-1], self.resolutions[-1]])
-        return image_out
+    # @tf.function
+    # def serve(self, latents, labels, truncation_psi):
+    #     dlatents = self.g_mapping([latents, labels])
+    #     w_broadcasted = self.broadcast(dlatents)
+    #     w_broadcasted = self.truncation_trick(w_broadcasted, truncation_cutoff=None, truncation_psi=truncation_psi)
+    #     image_out = self.synthesis(w_broadcasted)
+    #
+    #     image_out.set_shape([None, 3, self.resolutions[-1], self.resolutions[-1]])
+    #     return image_out

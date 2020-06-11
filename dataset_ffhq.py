@@ -10,13 +10,15 @@ def parse_tfrecord_tf(record):
         'data': tf.io.FixedLenFeature([], tf.dtypes.string)
     })
 
-    # [0 ~ 255] uint8
-    images = tf.io.decode_raw(features['data'], tf.dtypes.uint8)
-    images = tf.reshape(images, features['shape'])
-
-    # [0.0 ~ 255.0] float32
-    images = tf.cast(images, tf.dtypes.float32)
-    return images
+    # [0 ~ 255] uint8 -> [-1.0 ~ 1.0] float32
+    image = tf.io.decode_raw(features['data'], tf.dtypes.uint8)
+    image = tf.reshape(image, features['shape'])
+    image = tf.transpose(image, perm=[1, 2, 0])
+    image = tf.image.random_flip_left_right(image)
+    image = tf.cast(image, tf.dtypes.float32)
+    image = image / 127.5 - 1.0
+    image = tf.transpose(image, perm=[2, 0, 1])
+    return image
 
 
 def get_ffhq_dataset(tfrecord_base_dir, res, batch_size, epochs=None, buffer_size=1000):
@@ -34,6 +36,8 @@ def get_ffhq_dataset(tfrecord_base_dir, res, batch_size, epochs=None, buffer_siz
 
 
 def main():
+    from PIL import Image
+
     res = 64
     batch_size = 4
     epochs = 1
@@ -41,8 +45,16 @@ def main():
 
     dataset = get_ffhq_dataset(tfrecord_dir, res, batch_size, epochs)
 
-    for real_images in dataset.take(1):
+    for real_images in dataset.take(4):
+        # real_images: [batch_size, 3, res, res] (-1.0 ~ 1.0) float32
         print(real_images.shape)
+
+        images = real_images.numpy()
+        images = np.transpose(images, axes=(0, 2, 3, 1))
+        images = (images + 1.0) * 127.5
+        images = images.astype(np.uint8)
+        image = Image.fromarray(images[0])
+        image.show()
     return
 
 

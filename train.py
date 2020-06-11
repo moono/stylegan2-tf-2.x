@@ -8,7 +8,6 @@ from utils import str_to_bool
 from tf_utils import allow_memory_growth
 from dataset_ffhq import get_ffhq_dataset
 from stylegan2.losses import d_logistic, d_logistic_r1, g_logistic_non_saturating, g_logistic_ns_pathreg
-from stylegan2.utils import preprocess_fit_train_image, adjust_dynamic_range
 from load_models import load_generator, load_discriminator
 
 
@@ -224,12 +223,11 @@ class Trainer(object):
         print('max_steps: {}'.format(self.max_steps))
         t_start = time.time()
         for real_images in dist_datasets:
-            # preprocess inputs
-            batch_size = tf.shape(real_images)[0]
-            real_images = preprocess_fit_train_image(real_images, self.train_res)
-
             # get current step
             step = self.g_optimizer.iterations.numpy()
+
+            # train steps
+            batch_size = tf.shape(real_images)[0]
 
             # g train step
             g_loss, pl_reg = dist_g_train_step((batch_size,)), zero
@@ -331,7 +329,7 @@ def main():
     parser.add_argument('--tfrecord_dir', default='./tfrecords', type=str)
     parser.add_argument('--train_res', default=64, type=int)
     parser.add_argument('--shuffle_buffer_size', default=1000, type=int)
-    parser.add_argument('--batch_size_per_replica', default=4, type=int)
+    parser.add_argument('--batch_size_per_replica', default=2, type=int)
     args = vars(parser.parse_args())
 
     if args['allow_memory_growth']:
