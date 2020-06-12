@@ -9,9 +9,10 @@
 | resnet architecture | :heavy_check_mark: |
 | Path regularization | :heavy_check_mark: |
 | Lazy regularization | :heavy_check_mark: |
-| Fast optimized bias / activation / bilinear filtering (cuda compiled code) | - |
-| Single GPU training |:heavy_check_mark: |
-| Multi GPU distributed training | - |
+| Fast optimized bias / activation (cuda compiled code) | - |
+| Fast optimized bilinear filtering (cuda compiled code) | :heavy_check_mark: |
+| Single GPU training | :heavy_check_mark: |
+| Multi GPU distributed training | :heavy_check_mark: |
 | Inference from official Generator weights | :heavy_check_mark: |
 
 ## Inference from official weights
@@ -19,7 +20,7 @@
 | :---: | :---: |
 | ![official_result] | ![restored_result] |
 
-## Current result
+## Previous implementation result (current version of training not tested!!)
 | at 284k train step | Screenshot |
 | :--- |  :---: |
 | **Loss** |  ![loss_tensorboard] |
