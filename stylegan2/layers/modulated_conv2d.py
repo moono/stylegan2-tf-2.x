@@ -83,3 +83,23 @@ class ModulatedConv2D(tf.keras.layers.Layer):
             # [BOhw] Not fused => scale output activations
             x *= d[:, :, tf.newaxis, tf.newaxis]
         return x
+
+    def get_config(self):
+        config = super(ModulatedConv2D, self).get_config()
+        config.update({
+            'in_res': self.in_res,
+            'in_fmaps': self.in_fmaps,
+            'fmaps': self.fmaps,
+            'kernel': self.kernel,
+            'demodulate': self.demodulate,
+            'fused_modconv': self.fused_modconv,
+            'gain': self.gain,
+            'lrmul': self.lrmul,
+            'up': self.up,
+            'down': self.down,
+            'k': self.k,
+            'pad0': self.pad0,
+            'pad1': self.pad1,
+            'runtime_coef': self.runtime_coef,
+        })
+        return config

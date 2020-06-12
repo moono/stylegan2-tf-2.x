@@ -25,5 +25,6 @@ class ToRGB(tf.keras.layers.Layer):
         config = super(ToRGB, self).get_config()
         config.update({
             'in_ch': self.in_ch,
+            'res': self.res,
         })
         return config

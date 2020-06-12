@@ -155,6 +155,8 @@ class Synthesis(tf.keras.layers.Layer):
         config.update({
             'resolutions': self.resolutions,
             'featuremaps': self.featuremaps,
-            'resample_kernel': self.resample_kernel,
+            'k': self.k,
+            'pad0': self.pad0,
+            'pad1': self.pad1,
         })
         return config

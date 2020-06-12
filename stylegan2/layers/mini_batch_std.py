@@ -23,3 +23,11 @@ class MinibatchStd(tf.keras.layers.Layer):
 
         x = tf.concat([inputs, y], axis=1)
         return x
+
+    def get_config(self):
+        config = super(MinibatchStd, self).get_config()
+        config.update({
+            'group_size': self.group_size,
+            'num_new_features': self.num_new_features,
+        })
+        return config

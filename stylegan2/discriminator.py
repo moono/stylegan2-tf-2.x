@@ -48,6 +48,18 @@ class DiscriminatorBlock(tf.keras.layers.Layer):
         x = (x + residual) * self.resnet_scale
         return x
 
+    def get_config(self):
+        config = super(DiscriminatorBlock, self).get_config()
+        config.update({
+            'n_f0': self.n_f0,
+            'n_f1': self.n_f1,
+            'gain': self.gain,
+            'lrmul': self.lrmul,
+            'res': self.res,
+            'resnet_scale': self.resnet_scale,
+        })
+        return config
+
 
 class DiscriminatorLastBlock(tf.keras.layers.Layer):
     def __init__(self, n_f0, n_f1, res, **kwargs):
@@ -80,6 +92,17 @@ class DiscriminatorLastBlock(tf.keras.layers.Layer):
         x = self.dense_1(x)
         x = self.apply_bias_act_1(x)
         return x
+
+    def get_config(self):
+        config = super(DiscriminatorLastBlock, self).get_config()
+        config.update({
+            'n_f0': self.n_f0,
+            'n_f1': self.n_f1,
+            'gain': self.gain,
+            'lrmul': self.lrmul,
+            'res': self.res,
+        })
+        return config
 
 
 class Discriminator(tf.keras.Model):
@@ -123,3 +146,6 @@ class Discriminator(tf.keras.Model):
             x = tf.reduce_sum(x * labels, axis=1, keepdims=True)
         scores_out = x
         return scores_out
+
+    def compute_output_shape(self, input_shape):
+        return input_shape[0][0], max(self.labels_dim, 1)

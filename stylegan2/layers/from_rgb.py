@@ -18,3 +18,11 @@ class FromRGB(tf.keras.layers.Layer):
         y = self.conv(inputs)
         y = self.apply_bias_act(y)
         return y
+
+    def get_config(self):
+        config = super(FromRGB, self).get_config()
+        config.update({
+            'fmaps': self.fmaps,
+            'res': self.res,
+        })
+        return config

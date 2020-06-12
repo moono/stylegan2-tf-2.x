@@ -32,5 +32,6 @@ class Dense(tf.keras.layers.Layer):
             'fmaps': self.fmaps,
             'gain': self.gain,
             'lrmul': self.lrmul,
+            'runtime_coef': self.runtime_coef,
         })
         return config

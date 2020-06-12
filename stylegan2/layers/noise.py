@@ -18,3 +18,8 @@ class Noise(tf.keras.layers.Layer):
 
         x = inputs + noise * self.noise_strength
         return x
+
+    def get_config(self):
+        config = super(Noise, self).get_config()
+        config.update({})
+        return config
