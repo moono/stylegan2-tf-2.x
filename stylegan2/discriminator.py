@@ -18,17 +18,17 @@ class DiscriminatorBlock(tf.keras.layers.Layer):
         self.resnet_scale = 1. / tf.sqrt(2.)
 
         # conv_0
-        self.conv_0 = Conv2D(fmaps=self.n_f0, kernel=3, up=False, down=False,
+        self.conv_0 = Conv2D(in_res=res, in_fmaps=self.n_f0, fmaps=self.n_f0, kernel=3, up=False, down=False,
                              resample_kernel=None, gain=self.gain, lrmul=self.lrmul, name='conv_0')
         self.apply_bias_act_0 = BiasAct(lrmul=self.lrmul, act='lrelu', name='bias_0')
 
         # conv_1 down
-        self.conv_1 = Conv2D(fmaps=self.n_f1, kernel=3, up=False, down=True,
+        self.conv_1 = Conv2D(in_res=res, in_fmaps=self.n_f0, fmaps=self.n_f1, kernel=3, up=False, down=True,
                              resample_kernel=[1, 3, 3, 1], gain=self.gain, lrmul=self.lrmul, name='conv_1')
         self.apply_bias_act_1 = BiasAct(lrmul=self.lrmul, act='lrelu', name='bias_1')
 
         # resnet skip
-        self.conv_skip = Conv2D(fmaps=self.n_f1, kernel=1, up=False, down=True,
+        self.conv_skip = Conv2D(in_res=res, in_fmaps=self.n_f0, fmaps=self.n_f1, kernel=1, up=False, down=True,
                                 resample_kernel=[1, 3, 3, 1], gain=self.gain, lrmul=self.lrmul, name='skip')
 
     def call(self, inputs, training=None, mask=None):
@@ -61,7 +61,7 @@ class DiscriminatorLastBlock(tf.keras.layers.Layer):
         self.minibatch_std = MinibatchStd(group_size=4, num_new_features=1, name='minibatchstd')
 
         # conv_0
-        self.conv_0 = Conv2D(fmaps=self.n_f0, kernel=3, up=False, down=False,
+        self.conv_0 = Conv2D(in_res=res, in_fmaps=self.n_f0 + 1, fmaps=self.n_f0, kernel=3, up=False, down=False,
                              resample_kernel=None, gain=self.gain, lrmul=self.lrmul, name='conv_0')
         self.apply_bias_act_0 = BiasAct(lrmul=self.lrmul, act='lrelu', name='bias_0')
 
@@ -92,7 +92,7 @@ class Discriminator(tf.keras.Model):
 
         # stack discriminator blocks
         res0, n_f0 = self.r_resolutions[0], self.r_featuremaps[0]
-        self.initial_fromrgb = FromRGB(fmaps=n_f0, name='{:d}x{:d}/FromRGB'.format(res0, res0))
+        self.initial_fromrgb = FromRGB(fmaps=n_f0, res=res0, name='{:d}x{:d}/FromRGB'.format(res0, res0))
         self.blocks = list()
         for index, (res0, n_f0) in enumerate(zip(self.r_resolutions[:-1], self.r_featuremaps[:-1])):
             n_f1 = self.r_featuremaps[index + 1]

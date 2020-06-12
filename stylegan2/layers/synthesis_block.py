@@ -4,7 +4,7 @@ from stylegan2.layers.modulated_conv2d import ModulatedConv2D
 from stylegan2.layers.bias_act import BiasAct
 from stylegan2.layers.noise import Noise
 from stylegan2.layers.to_rgb import ToRGB
-from stylegan2.layers.cuda.upfirdn_2d import upsample_2d
+from stylegan2.layers.cuda.upfirdn_2d_v2 import upsample_2d, compute_paddings
 
 
 class SynthesisConstBlock(tf.keras.layers.Layer):
@@ -17,7 +17,7 @@ class SynthesisConstBlock(tf.keras.layers.Layer):
         self.lrmul = 1.0
 
         # conv block
-        self.conv = ModulatedConv2D(in_fmaps=self.fmaps, fmaps=self.fmaps, kernel=3, up=False, down=False,
+        self.conv = ModulatedConv2D(in_res=res, in_fmaps=self.fmaps, fmaps=self.fmaps, kernel=3, up=False, down=False,
                                     demodulate=True, resample_kernel=[1, 3, 3, 1], gain=self.gain, lrmul=self.lrmul,
                                     fused_modconv=True, name='conv')
         self.apply_noise = Noise(name='noise')
@@ -63,14 +63,14 @@ class SynthesisBlock(tf.keras.layers.Layer):
         self.lrmul = 1.0
 
         # conv0 up
-        self.conv_0 = ModulatedConv2D(in_fmaps=self.in_ch, fmaps=self.fmaps, kernel=3, up=True, down=False,
+        self.conv_0 = ModulatedConv2D(in_res=res//2, in_fmaps=self.in_ch, fmaps=self.fmaps, kernel=3, up=True, down=False,
                                       demodulate=True, resample_kernel=[1, 3, 3, 1], gain=self.gain, lrmul=self.lrmul,
                                       fused_modconv=True, name='conv_0')
         self.apply_noise_0 = Noise(name='noise_0')
         self.apply_bias_act_0 = BiasAct(lrmul=self.lrmul, act='lrelu', name='bias_0')
 
         # conv block
-        self.conv_1 = ModulatedConv2D(in_fmaps=self.fmaps, fmaps=self.fmaps, kernel=3, up=False, down=False,
+        self.conv_1 = ModulatedConv2D(in_res=res, in_fmaps=self.fmaps, fmaps=self.fmaps, kernel=3, up=False, down=False,
                                       demodulate=True, resample_kernel=[1, 3, 3, 1], gain=self.gain, lrmul=self.lrmul,
                                       fused_modconv=True, name='conv_1')
         self.apply_noise_1 = Noise(name='noise_1')
@@ -107,12 +107,14 @@ class Synthesis(tf.keras.layers.Layer):
         super(Synthesis, self).__init__(name=name, **kwargs)
         self.resolutions = resolutions
         self.featuremaps = featuremaps
-        self.resample_kernel = [1, 3, 3, 1]
+        # self.resample_kernel = [1, 3, 3, 1]
+
+        self.k, self.pad0, self.pad1 = compute_paddings([1, 3, 3, 1], None, up=True, down=False, is_conv=False)
 
         # initial layer
         res, n_f = resolutions[0], featuremaps[0]
         self.initial_block = SynthesisConstBlock(fmaps=n_f, res=res, name='{:d}x{:d}/const'.format(res, res))
-        self.initial_torgb = ToRGB(in_ch=n_f, name='{:d}x{:d}/ToRGB'.format(res, res))
+        self.initial_torgb = ToRGB(in_ch=n_f, res=res, name='{:d}x{:d}/ToRGB'.format(res, res))
 
         # stack generator block with lerp block
         prev_n_f = n_f
@@ -121,7 +123,7 @@ class Synthesis(tf.keras.layers.Layer):
         for res, n_f in zip(self.resolutions[1:], self.featuremaps[1:]):
             self.blocks.append(SynthesisBlock(in_ch=prev_n_f, fmaps=n_f, res=res,
                                               name='{:d}x{:d}/block'.format(res, res)))
-            self.torgbs.append(ToRGB(in_ch=n_f, name='{:d}x{:d}/ToRGB'.format(res, res)))
+            self.torgbs.append(ToRGB(in_ch=n_f, res=res * 2, name='{:d}x{:d}/ToRGB'.format(res, res)))
             prev_n_f = n_f
 
     def call(self, inputs, training=None, mask=None):
@@ -138,8 +140,9 @@ class Synthesis(tf.keras.layers.Layer):
             w1 = w_broadcasted[:, layer_index + 1]
             w2 = w_broadcasted[:, layer_index + 2]
 
+            y_res = block.res // 2
             x = block([x, w0, w1])
-            y = upsample_2d(y, self.resample_kernel, factor=2, gain=1.0)
+            y = upsample_2d(y, y_res, self.pad0, self.pad1, self.k)
             y = y + torgb([x, w2])
 
             layer_index += 2

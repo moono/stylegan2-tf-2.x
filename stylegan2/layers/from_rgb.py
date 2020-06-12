@@ -5,11 +5,12 @@ from stylegan2.layers.bias_act import BiasAct
 
 
 class FromRGB(tf.keras.layers.Layer):
-    def __init__(self, fmaps, **kwargs):
+    def __init__(self, fmaps, res, **kwargs):
         super(FromRGB, self).__init__(**kwargs)
         self.fmaps = fmaps
+        self.res = res
 
-        self.conv = Conv2D(fmaps=self.fmaps, kernel=1, up=False, down=False,
+        self.conv = Conv2D(in_res=res, in_fmaps=3, fmaps=self.fmaps, kernel=1, up=False, down=False,
                            resample_kernel=None, gain=1.0, lrmul=1.0, name='conv')
         self.apply_bias_act = BiasAct(lrmul=1.0, act='lrelu', name='bias')
 

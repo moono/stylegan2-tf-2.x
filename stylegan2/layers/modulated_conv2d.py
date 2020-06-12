@@ -3,13 +3,16 @@ import tensorflow as tf
 from stylegan2.layers.commons import compute_runtime_coef
 from stylegan2.layers.dense import Dense
 from stylegan2.layers.bias_act import BiasAct
-from stylegan2.layers.cuda.upfirdn_2d import upsample_conv_2d, conv_downsample_2d
+from stylegan2.layers.cuda.upfirdn_2d_v2 import upsample_conv_2d, conv_downsample_2d, compute_paddings
 
 
 class ModulatedConv2D(tf.keras.layers.Layer):
-    def __init__(self, in_fmaps, fmaps, kernel, up, down, demodulate, resample_kernel, gain, lrmul, fused_modconv, **kwargs):
+    def __init__(self, in_res, in_fmaps, fmaps, kernel, up, down, demodulate, resample_kernel, gain, lrmul,
+                 fused_modconv, **kwargs):
         super(ModulatedConv2D, self).__init__(**kwargs)
         assert not (up and down)
+
+        self.in_res = in_res
         self.in_fmaps = in_fmaps
         self.fmaps = fmaps
         self.kernel = kernel
@@ -17,9 +20,11 @@ class ModulatedConv2D(tf.keras.layers.Layer):
         self.up = up
         self.down = down
         self.fused_modconv = fused_modconv
-        self.resample_kernel = resample_kernel
         self.gain = gain
         self.lrmul = lrmul
+        # self.resample_kernel = resample_kernel
+
+        self.k, self.pad0, self.pad1 = compute_paddings(resample_kernel, self.kernel, up, down, is_conv=True)
 
         # self.factor = 2
         self.mod_dense = Dense(self.in_fmaps, gain=1.0, lrmul=1.0, name='mod_dense')
@@ -63,9 +68,9 @@ class ModulatedConv2D(tf.keras.layers.Layer):
 
         # Convolution with optional up/downsampling.
         if self.up:
-            x = upsample_conv_2d(x, w, data_format='NCHW', k=self.resample_kernel)
+            x = upsample_conv_2d(x, self.in_res, w, self.kernel, self.kernel, self.pad0, self.pad1, self.k)
         elif self.down:
-            x = conv_downsample_2d(x, w, data_format='NCHW', k=self.resample_kernel)
+            x = conv_downsample_2d(x, self.in_res, w, self.kernel, self.kernel, self.pad0, self.pad1, self.k)
         else:
             x = tf.nn.conv2d(x, w, data_format='NCHW', strides=[1, 1, 1, 1], padding='SAME')
 
