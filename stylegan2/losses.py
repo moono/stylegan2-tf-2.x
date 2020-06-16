@@ -1,7 +1,8 @@
 import tensorflow as tf
 
 
-def d_logistic(generator, discriminator, real_images, batch_size, z_dim, labels_dim):
+def d_logistic(real_images, generator, discriminator, z_dim, labels_dim):
+    batch_size = tf.shape(real_images)[0]
     z = tf.random.normal(shape=[batch_size, z_dim], dtype=tf.float32)
     labels = tf.random.normal(shape=[batch_size, labels_dim], dtype=tf.float32)
 
@@ -16,7 +17,8 @@ def d_logistic(generator, discriminator, real_images, batch_size, z_dim, labels_
     return d_loss
 
 
-def d_logistic_r1(generator, discriminator, real_images, batch_size, z_dim, labels_dim):
+def d_logistic_r1_reg(real_images, generator, discriminator, z_dim, labels_dim):
+    batch_size = tf.shape(real_images)[0]
     z = tf.random.normal(shape=[batch_size, z_dim], dtype=tf.float32)
     labels = tf.random.normal(shape=[batch_size, labels_dim], dtype=tf.float32)
 
@@ -40,7 +42,8 @@ def d_logistic_r1(generator, discriminator, real_images, batch_size, z_dim, labe
     return d_loss, r1_penalty
 
 
-def g_logistic_non_saturating(generator, discriminator, batch_size, z_dim, labels_dim):
+def g_logistic_non_saturating(real_images, generator, discriminator, z_dim, labels_dim):
+    batch_size = tf.shape(real_images)[0]
     z = tf.random.normal(shape=[batch_size, z_dim], dtype=tf.float32)
     labels = tf.random.normal(shape=[batch_size, labels_dim], dtype=tf.float32)
 
@@ -53,12 +56,13 @@ def g_logistic_non_saturating(generator, discriminator, batch_size, z_dim, label
     return g_loss
 
 
-def g_logistic_ns_pathreg(generator, discriminator, batch_size, z_dim, labels_dim,
-                          pl_mean, pl_minibatch_shrink=2, pl_decay=0.01):
+def g_logistic_ns_pathreg(real_images, generator, discriminator, z_dim, labels_dim,
+                          pl_mean, pl_minibatch_shrink, pl_denorm, pl_decay):
+    batch_size = tf.shape(real_images)[0]
     z = tf.random.normal(shape=[batch_size, z_dim], dtype=tf.float32)
     labels = tf.random.normal(shape=[batch_size, labels_dim], dtype=tf.float32)
 
-    pl_minibatch = tf.math.floordiv(batch_size, pl_minibatch_shrink)
+    pl_minibatch = tf.maximum(1, tf.math.floordiv(batch_size, pl_minibatch_shrink))
     pl_z = tf.random.normal(shape=[pl_minibatch, z_dim], dtype=tf.float32)
     pl_labels = tf.random.normal(shape=[pl_minibatch, labels_dim], dtype=tf.float32)
 
@@ -69,10 +73,10 @@ def g_logistic_ns_pathreg(generator, discriminator, batch_size, z_dim, labels_di
 
     # Evaluate the regularization term using a smaller minibatch to conserve memory.
     with tf.GradientTape() as pl_tape:
+        pl_tape.watch([pl_z, pl_labels])
         pl_fake_images, pl_w_broadcasted = generator([pl_z, pl_labels], ret_w_broadcasted=True, training=True)
 
-        denorm = tf.cast(tf.reduce_prod(tf.shape(pl_fake_images)[2:]), dtype=tf.float32)
-        pl_noise = tf.random.normal(tf.shape(pl_fake_images)) / tf.sqrt(denorm)
+        pl_noise = tf.random.normal(tf.shape(pl_fake_images)) * pl_denorm
         pl_noise_applied = tf.reduce_sum(pl_fake_images * pl_noise)
 
     pl_grads = pl_tape.gradient(pl_noise_applied, pl_w_broadcasted)

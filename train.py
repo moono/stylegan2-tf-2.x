@@ -7,7 +7,7 @@ import tensorflow as tf
 from utils import str_to_bool
 from tf_utils import allow_memory_growth
 from dataset_ffhq import get_ffhq_dataset
-from stylegan2.losses import d_logistic, d_logistic_r1, g_logistic_non_saturating, g_logistic_ns_pathreg
+from stylegan2.losses import d_logistic, d_logistic_r1_reg, g_logistic_non_saturating, g_logistic_ns_pathreg
 from load_models import load_generator, load_discriminator
 
 
@@ -34,20 +34,24 @@ class Trainer(object):
         self.save_step = 100
         self.image_summary_step = 100
         self.reached_max_steps = False
-        self.log_template = 'step {}: elapsed: {:.2f}s, d_loss: {:.3f}, g_loss: {:.3f}, r1_pen: {:.3f}, pl_reg: {:.3f}'
+        self.log_template = '{:s}, {:s}, {:s}'.format(
+            'step {}: elapsed: {:.2f}s, d_loss: {:.3f}, g_loss: {:.3f}',
+            'd_gan_loss: {:.3f}, g_gan_loss: {:.3f}',
+            'r1_penalty: {:.3f}, pl_penalty: {:.3f}')
 
         # copy network params
         self.g_params = t_params['g_params']
         self.d_params = t_params['d_params']
 
         # set optimizer params
-        self.lazy_regularization = t_params['lazy_regularization']
+        self.global_batch_scaler = 1.0 / float(self.global_batch_size)
         self.r1_gamma = 10.0
         self.g_opt = self.update_optimizer_params(t_params['g_opt'])
         self.d_opt = self.update_optimizer_params(t_params['d_opt'])
+        self.pl_minibatch_shrink = 2
+        self.pl_weight = float(self.pl_minibatch_shrink)
+        self.pl_denorm = tf.math.rsqrt(float(self.train_res) * float(self.train_res))
         self.pl_decay = 0.01
-        self.pl_weight = 1.0
-        self.pl_denorm = 1.0 / np.sqrt(self.train_res * self.train_res)
         self.pl_mean = tf.Variable(initial_value=0.0, name='pl_mean', trainable=False,
                                    synchronization=tf.VariableSynchronization.ON_READ,
                                    aggregation=tf.VariableAggregation.ONLY_FIRST_REPLICA)
@@ -89,83 +93,86 @@ class Trainer(object):
         else:
             print('Not restoring from saved checkpoint')
 
-    def update_optimizer_params(self, params):
+    @staticmethod
+    def update_optimizer_params(params):
         params_copy = params.copy()
-        if self.lazy_regularization:
-            mb_ratio = params_copy['reg_interval'] / (params_copy['reg_interval'] + 1)
-            params_copy['learning_rate'] = params_copy['learning_rate'] * mb_ratio
-            params_copy['beta1'] = params_copy['beta1'] ** mb_ratio
-            params_copy['beta2'] = params_copy['beta2'] ** mb_ratio
+        mb_ratio = params_copy['reg_interval'] / (params_copy['reg_interval'] + 1)
+        params_copy['learning_rate'] = params_copy['learning_rate'] * mb_ratio
+        params_copy['beta1'] = params_copy['beta1'] ** mb_ratio
+        params_copy['beta2'] = params_copy['beta2'] ** mb_ratio
         return params_copy
 
     def d_train_step(self, dist_inputs):
-        batch_size, real_images = dist_inputs
+        real_images = dist_inputs[0]
 
         with tf.GradientTape() as d_tape:
             # compute losses
-            d_loss = d_logistic(self.generator, self.discriminator, real_images, batch_size,
+            d_loss = d_logistic(real_images, self.generator, self.discriminator,
                                 self.g_params['z_dim'], self.g_params['labels_dim'])
 
-            # scale losses
-            d_loss = tf.reduce_sum(d_loss) * (1.0 / self.global_batch_size)
+            # scale loss
+            d_loss = tf.reduce_sum(d_loss) * self.global_batch_scaler
 
         d_gradients = d_tape.gradient(d_loss, self.discriminator.trainable_variables)
         self.d_optimizer.apply_gradients(zip(d_gradients, self.discriminator.trainable_variables))
         return d_loss
 
     def d_train_step_reg(self, dist_inputs):
-        batch_size, real_images = dist_inputs
+        real_images = dist_inputs[0]
 
         with tf.GradientTape() as d_tape:
             # compute losses
-            d_loss, r1_pen = d_logistic_r1(self.generator, self.discriminator, real_images, batch_size,
-                                           self.g_params['z_dim'], self.g_params['labels_dim'])
+            d_gan_loss, r1_penalty = d_logistic_r1_reg(real_images, self.generator, self.discriminator,
+                                                       self.g_params['z_dim'], self.d_params['labels_dim'])
+            r1_penalty = r1_penalty * (0.5 * self.r1_gamma) * self.d_opt['reg_interval']
 
             # scale losses
-            d_loss = tf.reduce_sum(d_loss) * (1.0 / self.global_batch_size)
-            r1_pen = tf.reduce_sum(r1_pen) * (1.0 / self.global_batch_size) * self.d_opt['reg_interval']
+            r1_penalty = tf.reduce_sum(r1_penalty) * self.global_batch_scaler
+            d_gan_loss = tf.reduce_sum(d_gan_loss) * self.global_batch_scaler
 
             # combine
-            d_loss += r1_pen * (0.5 * self.r1_gamma)
+            d_loss = d_gan_loss + r1_penalty
 
         d_gradients = d_tape.gradient(d_loss, self.discriminator.trainable_variables)
         self.d_optimizer.apply_gradients(zip(d_gradients, self.discriminator.trainable_variables))
-        return d_loss, r1_pen
+        return d_loss, d_gan_loss, r1_penalty
 
     def g_train_step(self, dist_inputs):
-        batch_size = dist_inputs[0]
+        real_images = dist_inputs[0]
 
         with tf.GradientTape() as g_tape:
             # compute losses
-            g_loss = g_logistic_non_saturating(self.generator, self.discriminator, batch_size,
+            g_loss = g_logistic_non_saturating(real_images, self.generator, self.discriminator,
                                                self.g_params['z_dim'], self.g_params['labels_dim'])
 
-            # scale losses
-            g_loss = tf.reduce_sum(g_loss) * (1.0 / self.global_batch_size)
+            # scale loss
+            g_loss = tf.reduce_sum(g_loss) * self.global_batch_scaler
 
         g_gradients = g_tape.gradient(g_loss, self.generator.trainable_variables)
         self.g_optimizer.apply_gradients(zip(g_gradients, self.generator.trainable_variables))
         return g_loss
 
     def g_train_step_reg(self, dist_inputs):
-        batch_size = dist_inputs[0]
+        real_images = dist_inputs[0]
 
         with tf.GradientTape() as g_tape:
             # compute losses
-            g_loss, pl_pen = g_logistic_ns_pathreg(self.generator, self.discriminator, batch_size,
-                                                   self.g_params['z_dim'], self.g_params['labels_dim'],
-                                                   self.pl_mean, pl_minibatch_shrink=2, pl_decay=self.pl_decay)
+            g_gan_loss, pl_penalty = g_logistic_ns_pathreg(real_images, self.generator, self.discriminator,
+                                                           self.g_params['z_dim'], self.g_params['labels_dim'],
+                                                           self.pl_mean, self.pl_minibatch_shrink, self.pl_denorm,
+                                                           self.pl_decay)
+            pl_penalty = pl_penalty * self.pl_weight * self.g_opt['reg_interval']
 
-            # scale losses
-            g_loss = tf.reduce_sum(g_loss) * (1.0 / self.global_batch_size)
-            pl_pen = tf.reduce_sum(pl_pen) * (1.0 / self.global_batch_size) * self.g_opt['reg_interval']
+            # scale loss
+            pl_penalty = tf.reduce_sum(pl_penalty) * self.global_batch_scaler
+            g_gan_loss = tf.reduce_sum(g_gan_loss) * self.global_batch_scaler
 
             # combine
-            g_loss += pl_pen * self.pl_weight
+            g_loss = g_gan_loss + pl_penalty
 
         g_gradients = g_tape.gradient(g_loss, self.generator.trainable_variables)
         self.g_optimizer.apply_gradients(zip(g_gradients, self.generator.trainable_variables))
-        return g_loss, pl_pen
+        return g_loss, g_gan_loss, pl_penalty
 
     def train(self, dist_datasets, strategy):
         def dist_d_train_step(inputs):
@@ -176,8 +183,9 @@ class Trainer(object):
         def dist_d_train_step_reg(inputs):
             per_replica_losses = strategy.experimental_run_v2(fn=self.d_train_step_reg, args=(inputs,))
             mean_d_loss = strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses[0], axis=None)
-            mean_r1_pen = strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses[1], axis=None)
-            return mean_d_loss, mean_r1_pen
+            mean_d_gan_loss = strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses[1], axis=None)
+            mean_r1_penalty = strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses[2], axis=None)
+            return mean_d_loss, mean_d_gan_loss, mean_r1_penalty
 
         def dist_g_train_step(inputs):
             per_replica_losses = strategy.experimental_run_v2(fn=self.g_train_step, args=(inputs,))
@@ -187,8 +195,9 @@ class Trainer(object):
         def dist_g_train_step_reg(inputs):
             per_replica_losses = strategy.experimental_run_v2(fn=self.g_train_step_reg, args=(inputs,))
             mean_g_loss = strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses[0], axis=None)
-            mean_pl_pen = strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses[1], axis=None)
-            return mean_g_loss, mean_pl_pen
+            mean_g_gan_loss = strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses[1], axis=None)
+            mean_pl_penalty = strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses[2], axis=None)
+            return mean_g_loss, mean_g_gan_loss, mean_pl_penalty
 
         def dist_gen_samples(dist_inputs):
             # `experimental_run_v2` replicates the provided computation and runs it with the distributed input.
@@ -213,31 +222,35 @@ class Trainer(object):
         train_summary_writer = tf.summary.create_file_writer(self.ckpt_dir)
 
         # loss metrics
-        metric_g_loss = tf.keras.metrics.Mean('g_loss', dtype=tf.float32)
         metric_d_loss = tf.keras.metrics.Mean('d_loss', dtype=tf.float32)
-        metric_r1_pen = tf.keras.metrics.Mean('r1_pen', dtype=tf.float32)
-        metric_pl_reg = tf.keras.metrics.Mean('pl_reg', dtype=tf.float32)
+        metric_g_loss = tf.keras.metrics.Mean('g_loss', dtype=tf.float32)
+        metric_d_gan_loss = tf.keras.metrics.Mean('d_gan_loss', dtype=tf.float32)
+        metric_g_gan_loss = tf.keras.metrics.Mean('g_gan_loss', dtype=tf.float32)
+        metric_r1_penalty = tf.keras.metrics.Mean('r1_penalty', dtype=tf.float32)
+        metric_pl_penalty = tf.keras.metrics.Mean('pl_penalty', dtype=tf.float32)
 
         # start training
         zero = tf.constant(0.0, dtype=tf.float32)
         print('max_steps: {}'.format(self.max_steps))
         t_start = time.time()
         for real_images in dist_datasets:
-            # get current step
             step = self.g_optimizer.iterations.numpy()
 
-            # train steps
-            batch_size = tf.shape(real_images)[0]
+            # d train step
+            if (step + 1) % self.d_opt['reg_interval'] == 0:
+                d_loss, d_gan_loss, r1_penalty = dist_d_train_step_reg((real_images, ))
+            else:
+                d_loss = dist_d_train_step((real_images, ))
+                d_gan_loss = d_loss
+                r1_penalty = zero
 
             # g train step
-            g_loss, pl_reg = dist_g_train_step((batch_size,)), zero
-            if step % self.g_opt['reg_interval'] == 0:
-                g_loss, pl_reg = dist_g_train_step_reg((batch_size,))
-
-            # d train step
-            d_loss, r1_pen = dist_d_train_step((batch_size, real_images)), zero
-            if step % self.d_opt['reg_interval'] == 0:
-                d_loss, r1_pen = dist_d_train_step_reg((batch_size, real_images))
+            if (step + 1) % self.g_opt['reg_interval'] == 0:
+                g_loss, g_gan_loss, pl_penalty = dist_g_train_step_reg((real_images, ))
+            else:
+                g_loss = dist_g_train_step((real_images,))
+                g_gan_loss = g_loss
+                pl_penalty = zero
 
             # update g_clone
             self.g_clone.set_as_moving_average_of(self.generator)
@@ -245,18 +258,22 @@ class Trainer(object):
             # update metrics
             metric_d_loss(d_loss)
             metric_g_loss(g_loss)
-            metric_r1_pen(r1_pen)
-            metric_pl_reg(pl_reg)
+            metric_d_gan_loss(d_gan_loss)
+            metric_g_gan_loss(g_gan_loss)
+            metric_r1_penalty(r1_penalty)
+            metric_pl_penalty(pl_penalty)
 
             # get current step
             step = self.g_optimizer.iterations.numpy()
 
             # save to tensorboard
             with train_summary_writer.as_default():
-                tf.summary.scalar('g_loss', metric_g_loss.result(), step=step)
                 tf.summary.scalar('d_loss', metric_d_loss.result(), step=step)
-                tf.summary.scalar('r1_pen', metric_r1_pen.result(), step=step)
-                tf.summary.scalar('pl_reg', metric_pl_reg.result(), step=step)
+                tf.summary.scalar('g_loss', metric_g_loss.result(), step=step)
+                tf.summary.scalar('d_gan_loss', metric_d_gan_loss.result(), step=step)
+                tf.summary.scalar('g_gan_loss', metric_g_gan_loss.result(), step=step)
+                tf.summary.scalar('r1_penalty', metric_r1_penalty.result(), step=step)
+                tf.summary.scalar('pl_penalty', metric_pl_penalty.result(), step=step)
 
             # save every self.save_step
             if step % self.save_step == 0:
@@ -279,7 +296,8 @@ class Trainer(object):
             if step % self.print_step == 0:
                 elapsed = time.time() - t_start
                 print(self.log_template.format(step, elapsed, d_loss.numpy(), g_loss.numpy(),
-                                               r1_pen.numpy(), pl_reg.numpy()))
+                                               d_gan_loss.numpy(), g_gan_loss.numpy(),
+                                               r1_penalty.numpy(), pl_penalty.numpy()))
 
                 # reset timer
                 t_start = time.time()
@@ -329,7 +347,7 @@ def main():
     parser.add_argument('--tfrecord_dir', default='./tfrecords', type=str)
     parser.add_argument('--train_res', default=64, type=int)
     parser.add_argument('--shuffle_buffer_size', default=1000, type=int)
-    parser.add_argument('--batch_size_per_replica', default=2, type=int)
+    parser.add_argument('--batch_size_per_replica', default=4, type=int)
     args = vars(parser.parse_args())
 
     if args['allow_memory_growth']:
@@ -381,7 +399,6 @@ def main():
             'n_total_image': 25000000,
             'n_samples': 3,
             'train_res': args['train_res'],
-            'lazy_regularization': True,
         }
 
         trainer = Trainer(training_parameters, name=f'stylegan2-ffhq-{args["train_res"]}x{args["train_res"]}')
