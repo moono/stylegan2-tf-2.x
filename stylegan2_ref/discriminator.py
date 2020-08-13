@@ -1,10 +1,24 @@
+import numpy as np
 import tensorflow as tf
 
-from stylegan2.layers.dense import Dense
-from stylegan2.layers.conv import Conv2D
-from stylegan2.layers.bias_act import BiasAct
-from stylegan2.layers.from_rgb import FromRGB
-from stylegan2.layers.mini_batch_std import MinibatchStd
+from stylegan2_ref.custom_layers import Dense, ResizeConv2D, Bias, LeakyReLU, MinibatchStd
+
+
+class FromRGB(tf.keras.layers.Layer):
+    def __init__(self, fmaps, **kwargs):
+        super(FromRGB, self).__init__(**kwargs)
+        self.fmaps = fmaps
+
+        self.conv = ResizeConv2D(fmaps=self.fmaps, kernel=1, gain=1.0, lrmul=1.0,
+                                 up=False, down=False, resample_kernel=None, name='conv')
+        self.apply_bias = Bias(lrmul=1.0, name='bias')
+        self.leaky_relu = LeakyReLU(name='lrelu')
+
+    def call(self, inputs, training=None, mask=None):
+        y = self.conv(inputs)
+        y = self.apply_bias(y)
+        y = self.leaky_relu(y)
+        return y
 
 
 class DiscriminatorBlock(tf.keras.layers.Layer):
@@ -15,21 +29,23 @@ class DiscriminatorBlock(tf.keras.layers.Layer):
         self.n_f0 = n_f0
         self.n_f1 = n_f1
         self.res = res
-        self.resnet_scale = 1. / tf.sqrt(2.)
+        self.resnet_scale = 1. / np.sqrt(2.)
 
         # conv_0
-        self.conv_0 = Conv2D(in_res=res, in_fmaps=self.n_f0, fmaps=self.n_f0, kernel=3, up=False, down=False,
-                             resample_kernel=None, gain=self.gain, lrmul=self.lrmul, name='conv_0')
-        self.apply_bias_act_0 = BiasAct(lrmul=self.lrmul, act='lrelu', name='bias_0')
+        self.conv_0 = ResizeConv2D(fmaps=self.n_f0, kernel=3, gain=self.gain, lrmul=self.lrmul,
+                                   up=False, down=False, resample_kernel=None, name='conv_0')
+        self.apply_bias_0 = Bias(self.lrmul, name='bias_0')
+        self.leaky_relu_0 = LeakyReLU(name='lrelu_0')
 
         # conv_1 down
-        self.conv_1 = Conv2D(in_res=res, in_fmaps=self.n_f0, fmaps=self.n_f1, kernel=3, up=False, down=True,
-                             resample_kernel=[1, 3, 3, 1], gain=self.gain, lrmul=self.lrmul, name='conv_1')
-        self.apply_bias_act_1 = BiasAct(lrmul=self.lrmul, act='lrelu', name='bias_1')
+        self.conv_1 = ResizeConv2D(fmaps=self.n_f1, kernel=3, gain=self.gain, lrmul=self.lrmul,
+                                   up=False, down=True, resample_kernel=[1, 3, 3, 1], name='conv_1')
+        self.apply_bias_1 = Bias(self.lrmul, name='bias_1')
+        self.leaky_relu_1 = LeakyReLU(name='lrelu_1')
 
         # resnet skip
-        self.conv_skip = Conv2D(in_res=res, in_fmaps=self.n_f0, fmaps=self.n_f1, kernel=1, up=False, down=True,
-                                resample_kernel=[1, 3, 3, 1], gain=self.gain, lrmul=self.lrmul, name='skip')
+        self.conv_skip = ResizeConv2D(fmaps=self.n_f1, kernel=1, gain=self.gain, lrmul=self.lrmul,
+                                      up=False, down=True, resample_kernel=[1, 3, 3, 1], name='skip')
 
     def call(self, inputs, training=None, mask=None):
         x = inputs
@@ -37,28 +53,18 @@ class DiscriminatorBlock(tf.keras.layers.Layer):
 
         # conv0
         x = self.conv_0(x)
-        x = self.apply_bias_act_0(x)
+        x = self.apply_bias_0(x)
+        x = self.leaky_relu_0(x)
 
         # conv1 down
         x = self.conv_1(x)
-        x = self.apply_bias_act_1(x)
+        x = self.apply_bias_1(x)
+        x = self.leaky_relu_1(x)
 
         # resnet skip
         residual = self.conv_skip(residual)
         x = (x + residual) * self.resnet_scale
         return x
-
-    def get_config(self):
-        config = super(DiscriminatorBlock, self).get_config()
-        config.update({
-            'n_f0': self.n_f0,
-            'n_f1': self.n_f1,
-            'gain': self.gain,
-            'lrmul': self.lrmul,
-            'res': self.res,
-            'resnet_scale': self.resnet_scale,
-        })
-        return config
 
 
 class DiscriminatorLastBlock(tf.keras.layers.Layer):
@@ -73,36 +79,29 @@ class DiscriminatorLastBlock(tf.keras.layers.Layer):
         self.minibatch_std = MinibatchStd(group_size=4, num_new_features=1, name='minibatchstd')
 
         # conv_0
-        self.conv_0 = Conv2D(in_res=res, in_fmaps=self.n_f0 + 1, fmaps=self.n_f0, kernel=3, up=False, down=False,
-                             resample_kernel=None, gain=self.gain, lrmul=self.lrmul, name='conv_0')
-        self.apply_bias_act_0 = BiasAct(lrmul=self.lrmul, act='lrelu', name='bias_0')
+        self.conv_0 = ResizeConv2D(fmaps=self.n_f0, kernel=3, gain=self.gain, lrmul=self.lrmul,
+                                   up=False, down=False, resample_kernel=None, name='conv_0')
+        self.apply_bias_0 = Bias(self.lrmul, name='bias_0')
+        self.leaky_relu_0 = LeakyReLU(name='lrelu_0')
 
         # dense_1
         self.dense_1 = Dense(self.n_f1, gain=self.gain, lrmul=self.lrmul, name='dense_1')
-        self.apply_bias_act_1 = BiasAct(lrmul=self.lrmul, act='lrelu', name='bias_1')
+        self.apply_bias_1 = Bias(self.lrmul, name='bias_1')
+        self.leaky_relu_1 = LeakyReLU(name='lrelu_1')
 
     def call(self, x, training=None, mask=None):
         x = self.minibatch_std(x)
 
         # conv_0
         x = self.conv_0(x)
-        x = self.apply_bias_act_0(x)
+        x = self.apply_bias_0(x)
+        x = self.leaky_relu_0(x)
 
         # dense_1
         x = self.dense_1(x)
-        x = self.apply_bias_act_1(x)
+        x = self.apply_bias_1(x)
+        x = self.leaky_relu_1(x)
         return x
-
-    def get_config(self):
-        config = super(DiscriminatorLastBlock, self).get_config()
-        config.update({
-            'n_f0': self.n_f0,
-            'n_f1': self.n_f1,
-            'gain': self.gain,
-            'lrmul': self.lrmul,
-            'res': self.res,
-        })
-        return config
 
 
 class Discriminator(tf.keras.Model):
@@ -115,7 +114,7 @@ class Discriminator(tf.keras.Model):
 
         # stack discriminator blocks
         res0, n_f0 = self.r_resolutions[0], self.r_featuremaps[0]
-        self.initial_fromrgb = FromRGB(fmaps=n_f0, res=res0, name='{:d}x{:d}/FromRGB'.format(res0, res0))
+        self.initial_fromrgb = FromRGB(fmaps=n_f0, name='{:d}x{:d}/FromRGB'.format(res0, res0))
         self.blocks = list()
         for index, (res0, n_f0) in enumerate(zip(self.r_resolutions[:-1], self.r_featuremaps[:-1])):
             n_f1 = self.r_featuremaps[index + 1]
@@ -128,7 +127,7 @@ class Discriminator(tf.keras.Model):
 
         # set last dense layer
         self.last_dense = Dense(max(self.labels_dim, 1), gain=1.0, lrmul=1.0, name='last_dense')
-        self.last_bias = BiasAct(lrmul=1.0, act='linear', name='last_bias')
+        self.last_bias = Bias(lrmul=1.0, name='last_bias')
 
     def call(self, inputs, training=None, mask=None):
         images, labels = inputs

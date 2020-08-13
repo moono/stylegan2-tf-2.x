@@ -31,13 +31,16 @@ import tensorflow as tf
 
 from PIL import Image
 from stylegan2.utils import postprocess_images
-from stylegan2.generator import Generator
+from load_models import load_generator
+from tf_utils import allow_memory_growth
 
 
 def handle_mapping(w_name):
     def extract_info(name):
-        splitted = name.split('/')[1]
-        val = splitted.split('_')[1]
+        splitted = name.split('/')
+        index = splitted.index('g_mapping')
+        indicator = splitted[index + 1]
+        val = indicator.split('_')[-1]
         return val
 
     level = extract_info(w_name)
@@ -50,8 +53,12 @@ def handle_mapping(w_name):
 
 def handle_synthesis(w_name):
     def extract_info(name):
-        r = (name.split('/')[1]).split('x')[1]
-        d = name.split('/')[2]
+        splitted = name.split('/')
+        index = splitted.index('g_synthesis')
+        indicator1 = splitted[index + 1]
+        indicator2 = splitted[index + 2]
+        r = indicator1.split('x')[1]
+        d = indicator2
         return r, d
 
     def to_rgb_layer(name, r):
@@ -99,7 +106,7 @@ def handle_synthesis(w_name):
             o_name = 'G_synthesis_1/4x4/Conv/mod_bias'
         elif 'noise/w:0' in name:
             o_name = 'G_synthesis_1/4x4/Conv/noise_strength'
-        else:   # if 'bias/b:0' in name:
+        else:
             o_name = 'G_synthesis_1/4x4/Conv/bias'
         return o_name
 
@@ -138,33 +145,19 @@ def check_shape(name_mapper, official_vars):
         if official_shape == v.shape:
             print('{}: shape matches'.format(official_name))
         else:
+            # print(f'Official: {official_name} -> {official_shape}')
+            # print(f'Current: {v.name} -> {v.shape}')
             raise ValueError('{}: wrong shape'.format(official_name))
     return
 
 
-def convert_official_weights():
-    # prepare variables & construct generator
-    g_params = {
-        'z_dim': 512,
-        'w_dim': 512,
-        'labels_dim': 0,
-        'n_mapping': 8,
-        'resolutions': [  4,   8,  16,  32,  64, 128, 256, 512, 1024],
-        'featuremaps': [512, 512, 512, 512, 512, 256, 128,  64,   32],
-        'w_ema_decay': 0.995,
-        'style_mixing_prob': 0.9,
-    }
-    g_clone = Generator(g_params)
-
-    # finalize model (build)
-    test_latent = np.ones((1, g_params['z_dim']), dtype=np.float32)
-    test_labels = np.ones((1, g_params['labels_dim']), dtype=np.float32)
-    _ = g_clone([test_latent, test_labels], training=False)
-    _ = g_clone([test_latent, test_labels], training=True)
+def convert_official_weights(ckpt_dir, use_custom_cuda):
+    g_clone = load_generator(g_params=None, is_g_clone=True, ckpt_dir=None, custom_cuda=use_custom_cuda)
 
     # restore official ones to current implementation
     official_checkpoint = tf.train.latest_checkpoint('./official-pretrained')
     official_vars = tf.train.list_variables(official_checkpoint)
+    print(official_vars)
 
     # get name mapper
     name_mapper = variable_name_mapper(g_clone)
@@ -175,58 +168,24 @@ def convert_official_weights():
     # restore
     tf.compat.v1.train.init_from_checkpoint(official_checkpoint, assignment_map=name_mapper)
 
-    # test
-    seed = 6600
-    rnd = np.random.RandomState(seed)
-    latents = rnd.randn(1, g_params['z_dim'])
-    latents = latents.astype(np.float32)
-    image_out, _ = g_clone([latents, test_labels], training=False, truncation_psi=0.5)
-    image_out = postprocess_images(image_out)
-    image_out = image_out.numpy()
-    Image.fromarray(image_out[0], 'RGB').save('seed{}.png'.format(seed))
-
     # save
-    ckpt_dir = './official-converted'
     ckpt = tf.train.Checkpoint(g_clone=g_clone)
     manager = tf.train.CheckpointManager(ckpt, ckpt_dir, max_to_keep=1)
     manager.save(checkpoint_number=0)
     return
 
 
-def test_generator():
-    # prepare variables & construct generator
-    g_params = {
-        'z_dim': 512,
-        'w_dim': 512,
-        'labels_dim': 0,
-        'n_mapping': 8,
-        'resolutions': [4, 8, 16, 32, 64, 128, 256, 512, 1024],
-        'featuremaps': [512, 512, 512, 512, 512, 256, 128, 64, 32],
-        'w_ema_decay': 0.995,
-        'style_mixing_prob': 0.9,
-    }
-    g_clone = Generator(g_params)
-
-    # finalize model (build)
-    test_latent = np.ones((1, g_params['z_dim']), dtype=np.float32)
-    test_labels = np.ones((1, g_params['labels_dim']), dtype=np.float32)
-    _ = g_clone([test_latent, test_labels], training=False)
-    _ = g_clone([test_latent, test_labels], training=True)
-
-    # restore
-    ckpt_dir = './official-converted'
-    ckpt = tf.train.Checkpoint(g_clone=g_clone)
-    manager = tf.train.CheckpointManager(ckpt, ckpt_dir, max_to_keep=1)
-    ckpt.restore(manager.latest_checkpoint)
-    if manager.latest_checkpoint:
-        print('Restored from {}'.format(manager.latest_checkpoint))
+def test_generator(ckpt_dir, use_custom_cuda):
+    g_clone = load_generator(g_params=None, is_g_clone=True, ckpt_dir=ckpt_dir, custom_cuda=use_custom_cuda)
 
     # test
     seed = 6600
     rnd = np.random.RandomState(seed)
-    latents = rnd.randn(1, g_params['z_dim'])
+    latents = rnd.randn(1, g_clone.z_dim)
+    labels = rnd.randn(1, g_clone.labels_dim)
     latents = latents.astype(np.float32)
-    image_out, _ = g_clone([latents, test_labels], training=False, truncation_psi=0.5)
+    labels = labels.astype(np.float32)
+    image_out = g_clone([latents, labels], training=False, truncation_psi=0.5)
     image_out = postprocess_images(image_out)
     image_out = image_out.numpy()
     Image.fromarray(image_out[0], 'RGB').save('seed{}-restored.png'.format(seed))
@@ -234,8 +193,12 @@ def test_generator():
 
 
 def main():
-    convert_official_weights()
-    test_generator()
+    allow_memory_growth()
+
+    ckpt_dir = './official-converted'
+    use_custom_cuda = True
+    convert_official_weights(ckpt_dir, use_custom_cuda)
+    test_generator(ckpt_dir, use_custom_cuda)
     return
 
 

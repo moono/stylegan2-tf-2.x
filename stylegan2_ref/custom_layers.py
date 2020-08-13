@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-from stylegan2.upfirdn_2d import setup_resample_kernel, upsample_conv_2d, conv_downsample_2d
+from stylegan2_ref.upfirdn_2d import setup_resample_kernel, upsample_conv_2d, conv_downsample_2d
 
 
 def compute_runtime_coef(weight_shape, gain, lrmul):
