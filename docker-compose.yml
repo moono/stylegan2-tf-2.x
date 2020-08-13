@@ -1,26 +1,30 @@
 version: '2.3'
 services:
   training:
-    image: moono/tf-2.0
+    image: 172.20.40.190:5000/tf-2.0.0-gpu-py3:tfds
     runtime: nvidia
     environment:
-      - NVIDIA_VISIBLE_DEVICES=7
+      - NVIDIA_VISIBLE_DEVICES=0,1
     user: "2004:2004"
-    container_name: "moono_gpu_7"
+    container_name: "moono_gpu_01"
     volumes:
       - "/mnt/vision-nas/moono/git-repos/stylegan2-tf-2.x:/work-dir"
       - "/mnt/vision-nas/moono/trained_models/stylegan2-tf-2.x:/model-dir"
       - "/mnt/vision-nas/data-sets/stylegan/ffhq-dataset/tfrecords/ffhq:/tfrecord-dir:ro"
     working_dir: "/work-dir"
-    command: ["python", "-u", "train_advanced.py",
-              "--model_base_dir", "/model-dir",
+    command: ["python", "-u", "train.py",
+              "--allow_memory_growth", "false",
+              "--debug_split_gpu", "false",
+              "--use_tf_function", "true",
+              "--use_custom_cuda", "true",
+              "--model_base_dir", "/model-dir/cuda",
               "--tfrecord_dir", "/tfrecord-dir",
-              "--train_res", "1024",
+              "--train_res", "256",
               "--shuffle_buffer_size", "1000",
-              "--batch_size", "4"
+              "--batch_size_per_replica", "32"
     ]
   watching:
-    image: moono/tf-2.0
+    image: 172.20.40.190:5000/tf-2.0.0-gpu-py3:tfds
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=7
@@ -29,7 +33,7 @@ services:
     depends_on:
       - training
     volumes:
-      - "/mnt/vision-nas/moono/trained_models/stylegan2-tf-2.x:/model-dir:ro"
+      - "/mnt/vision-nas/moono/trained_models/stylegan2-tf-2.x:/model-dir"
     ports:
       - "36006:6006"
     working_dir: "/model-dir"
