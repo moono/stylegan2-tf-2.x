@@ -26,6 +26,16 @@
 | **Loss** |  ![loss_tensorboard] |
 | **Generation output**<br><br>Real Images<br><br>phi=0.0<br><br>phi=0.5<br><br>phi=0.7<br><br>phi=1.0  | ![generation_tensorboard] |
 
+### Using with pycharm
+* If .bashrc file's paths don't work in pycharm environment (e.g. `nvcc -h`), open pycharm with following
+```bash
+# move to pycharm installed location (location may vary)
+moono@moono-ubuntu:~$ cd .local/share/JetBrains/Toolbox/apps/PyCharm-P/ch-0/201.7846.77/bin/
+
+# launch pycharm with .bashrc 
+moono@moono-ubuntu:~/.local/share/JetBrains/Toolbox/apps/PyCharm-P/ch-0/201.7846.77/bin$ bash pycharm.sh
+```
+
 [loss_tensorboard]: assets/tf-keras-stylegan2-loss.PNG
 [generation_tensorboard]: assets/tf-keras-stylegan2-fake-images.PNG
 [official_result]: assets/seed6600-official.png

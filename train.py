@@ -5,16 +5,16 @@ import numpy as np
 import tensorflow as tf
 
 from utils import str_to_bool
-from tf_utils import allow_memory_growth
+from tf_utils import check_tf_version, allow_memory_growth, split_gpu_for_testing
+from load_models import load_generator, load_discriminator
 from dataset_ffhq import get_ffhq_dataset
 from stylegan2.losses import d_logistic, d_logistic_r1_reg, g_logistic_non_saturating, g_logistic_ns_pathreg
-from load_models import load_generator, load_discriminator
 
 
-def initiate_models(g_params, d_params):
-    discriminator = load_discriminator(d_params, ckpt_dir=None)
-    generator = load_generator(g_params=g_params, is_g_clone=False, ckpt_dir=None)
-    g_clone = load_generator(g_params=g_params, is_g_clone=True, ckpt_dir=None)
+def initiate_models(g_params, d_params, use_custom_cuda):
+    discriminator = load_discriminator(d_params, ckpt_dir=None, custom_cuda=use_custom_cuda)
+    generator = load_generator(g_params=g_params, is_g_clone=False, ckpt_dir=None, custom_cuda=use_custom_cuda)
+    g_clone = load_generator(g_params=g_params, is_g_clone=True, ckpt_dir=None, custom_cuda=use_custom_cuda)
 
     # set initial g_clone weights same as generator
     g_clone.set_weights(generator.get_weights())
@@ -23,7 +23,9 @@ def initiate_models(g_params, d_params):
 
 class Trainer(object):
     def __init__(self, t_params, name):
+        self.cur_tf_ver = t_params['cur_tf_ver']
         self.use_tf_function = t_params['use_tf_function']
+        self.use_custom_cuda = t_params['use_custom_cuda']
         self.model_base_dir = t_params['model_base_dir']
         self.global_batch_size = t_params['batch_size']
         self.n_total_image = t_params['n_total_image']
@@ -57,7 +59,9 @@ class Trainer(object):
                                    aggregation=tf.VariableAggregation.ONLY_FIRST_REPLICA)
 
         # create model: model and optimizer must be created under `strategy.scope`
-        self.discriminator, self.generator, self.g_clone = initiate_models(self.g_params, self.d_params)
+        self.discriminator, self.generator, self.g_clone = initiate_models(self.g_params,
+                                                                           self.d_params,
+                                                                           self.use_custom_cuda)
 
         # set optimizers
         self.d_optimizer = tf.keras.optimizers.Adam(self.d_opt['learning_rate'],
@@ -176,32 +180,46 @@ class Trainer(object):
 
     def train(self, dist_datasets, strategy):
         def dist_d_train_step(inputs):
-            per_replica_losses = strategy.experimental_run_v2(fn=self.d_train_step, args=(inputs,))
+            if self.cur_tf_ver == '2.0.0':
+                per_replica_losses = strategy.experimental_run_v2(fn=self.d_train_step, args=(inputs,))
+            else:
+                per_replica_losses = strategy.run(fn=self.d_train_step, args=(inputs,))
             mean_d_loss = strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses, axis=None)
             return mean_d_loss
 
         def dist_d_train_step_reg(inputs):
-            per_replica_losses = strategy.experimental_run_v2(fn=self.d_train_step_reg, args=(inputs,))
+            if self.cur_tf_ver == '2.0.0':
+                per_replica_losses = strategy.experimental_run_v2(fn=self.d_train_step_reg, args=(inputs,))
+            else:
+                per_replica_losses = strategy.run(fn=self.d_train_step_reg, args=(inputs,))
             mean_d_loss = strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses[0], axis=None)
             mean_d_gan_loss = strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses[1], axis=None)
             mean_r1_penalty = strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses[2], axis=None)
             return mean_d_loss, mean_d_gan_loss, mean_r1_penalty
 
         def dist_g_train_step(inputs):
-            per_replica_losses = strategy.experimental_run_v2(fn=self.g_train_step, args=(inputs,))
+            if self.cur_tf_ver == '2.0.0':
+                per_replica_losses = strategy.experimental_run_v2(fn=self.g_train_step, args=(inputs,))
+            else:
+                per_replica_losses = strategy.run(fn=self.g_train_step, args=(inputs,))
             mean_g_loss = strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses, axis=None)
             return mean_g_loss
 
         def dist_g_train_step_reg(inputs):
-            per_replica_losses = strategy.experimental_run_v2(fn=self.g_train_step_reg, args=(inputs,))
+            if self.cur_tf_ver == '2.0.0':
+                per_replica_losses = strategy.experimental_run_v2(fn=self.g_train_step_reg, args=(inputs,))
+            else:
+                per_replica_losses = strategy.run(fn=self.g_train_step_reg, args=(inputs,))
             mean_g_loss = strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses[0], axis=None)
             mean_g_gan_loss = strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses[1], axis=None)
             mean_pl_penalty = strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses[2], axis=None)
             return mean_g_loss, mean_g_gan_loss, mean_pl_penalty
 
         def dist_gen_samples(dist_inputs):
-            # `experimental_run_v2` replicates the provided computation and runs it with the distributed input.
-            per_replica_samples = strategy.experimental_run_v2(self.gen_samples, args=(dist_inputs,))
+            if self.cur_tf_ver == '2.0.0':
+                per_replica_samples = strategy.experimental_run_v2(self.gen_samples, args=(dist_inputs,))
+            else:
+                per_replica_samples = strategy.run(self.gen_samples, args=(dist_inputs,))
             return per_replica_samples
 
         # wrap with tf.function
@@ -342,16 +360,24 @@ def main():
     # global program arguments parser
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--allow_memory_growth', type=str_to_bool, nargs='?', const=True, default=True)
+    parser.add_argument('--debug_split_gpu', type=str_to_bool, nargs='?', const=True, default=False)
     parser.add_argument('--use_tf_function', type=str_to_bool, nargs='?', const=True, default=True)
+    parser.add_argument('--use_custom_cuda', type=str_to_bool, nargs='?', const=True, default=True)
     parser.add_argument('--model_base_dir', default='./models', type=str)
     parser.add_argument('--tfrecord_dir', default='./tfrecords', type=str)
-    parser.add_argument('--train_res', default=64, type=int)
+    parser.add_argument('--train_res', default=256, type=int)
     parser.add_argument('--shuffle_buffer_size', default=1000, type=int)
     parser.add_argument('--batch_size_per_replica', default=4, type=int)
     args = vars(parser.parse_args())
 
+    # check tensorflow version
+    cur_tf_ver = check_tf_version()
+
+    # GPU environment settings
     if args['allow_memory_growth']:
         allow_memory_growth()
+    if args['debug_split_gpu']:
+        split_gpu_for_testing(mem_in_gb=4.5)
 
     # network params
     resolutions = [4, 8, 16, 32, 64, 128, 256, 512, 1024]
@@ -385,7 +411,9 @@ def main():
         # training parameters
         training_parameters = {
             # global params
+            'cur_tf_ver': cur_tf_ver,
             'use_tf_function': args['use_tf_function'],
+            'use_custom_cuda': args['use_custom_cuda'],
             'model_base_dir': args['model_base_dir'],
 
             # network params
