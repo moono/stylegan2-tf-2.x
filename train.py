@@ -326,7 +326,7 @@ class Trainer(object):
     def convert_per_replica_image(nchw_per_replica_images, strategy):
         as_tensor = tf.concat(strategy.experimental_local_results(nchw_per_replica_images), axis=0)
         as_tensor = tf.transpose(as_tensor, perm=[0, 2, 3, 1])
-        as_tensor = tf.clip_by_value(as_tensor, 0.0, 1.0) * 255.0
+        as_tensor = (tf.clip_by_value(as_tensor, -1.0, 1.0) + 1.0) * 127.5
         as_tensor = tf.cast(as_tensor, tf.uint8)
         return as_tensor
 
