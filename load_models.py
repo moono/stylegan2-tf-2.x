@@ -1,10 +1,12 @@
 import tensorflow as tf
 
-from stylegan2.generator import Generator
-from stylegan2.discriminator import Discriminator
 
+def load_generator(g_params=None, is_g_clone=False, ckpt_dir=None, custom_cuda=True):
+    if custom_cuda:
+        from stylegan2.generator import Generator
+    else:
+        from stylegan2_ref.generator import Generator
 
-def load_generator(g_params=None, is_g_clone=False, ckpt_dir=None):
     if g_params is None:
         g_params = {
             'z_dim': 512,
@@ -30,11 +32,16 @@ def load_generator(g_params=None, is_g_clone=False, ckpt_dir=None):
         manager = tf.train.CheckpointManager(ckpt, ckpt_dir, max_to_keep=1)
         ckpt.restore(manager.latest_checkpoint).expect_partial()
         if manager.latest_checkpoint:
-            print('Generator restored from {}'.format(manager.latest_checkpoint))
+            print(f'Generator restored from {manager.latest_checkpoint}')
     return generator
 
 
-def load_discriminator(d_params=None, ckpt_dir=None):
+def load_discriminator(d_params=None, ckpt_dir=None, custom_cuda=True):
+    if custom_cuda:
+        from stylegan2.discriminator import Discriminator
+    else:
+        from stylegan2_ref.discriminator import Discriminator
+
     if d_params is None:
         d_params = {
             'labels_dim': 0,

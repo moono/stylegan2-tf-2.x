@@ -45,7 +45,6 @@ class Generator(tf.keras.Model):
                 cw.assign(lerp(sw, cw, beta))
         return
 
-    @tf.function
     def update_moving_average_of_w(self, w_broadcasted):
         # compute average of current w
         batch_avg = tf.reduce_mean(w_broadcasted[:, 0], axis=0)
@@ -54,7 +53,6 @@ class Generator(tf.keras.Model):
         self.w_avg.assign(lerp(batch_avg, self.w_avg, self.w_ema_decay))
         return
 
-    @tf.function
     def style_mixing_regularization(self, latents1, labels, w_broadcasted1):
         # get another w and broadcast it
         latents2 = tf.random.normal(shape=tf.shape(latents1), dtype=tf.dtypes.float32)
@@ -78,7 +76,6 @@ class Generator(tf.keras.Model):
             y=w_broadcasted2)
         return mixed_w_broadcasted
 
-    @tf.function
     def truncation_trick(self, w_broadcasted, truncation_psi, truncation_cutoff=None):
         ones = tf.ones_like(self.mixing_layer_indices, dtype=tf.float32)
         tpsi = ones * truncation_psi
@@ -91,7 +88,6 @@ class Generator(tf.keras.Model):
         truncated_w_broadcasted = lerp(self.w_avg, w_broadcasted, truncation_coefs)
         return truncated_w_broadcasted
 
-    # @tf.function
     def call(self, inputs, ret_w_broadcasted=False, truncation_psi=1.0, truncation_cutoff=None, training=None, mask=None):
         latents, labels = inputs
 
@@ -114,13 +110,3 @@ class Generator(tf.keras.Model):
 
     def compute_output_shape(self, input_shape):
         return input_shape[0][0], 3, self.resolutions[-1], self.resolutions[-1]
-
-    @tf.function
-    def serve(self, latents, labels, truncation_psi):
-        dlatents = self.g_mapping([latents, labels])
-        w_broadcasted = self.broadcast(dlatents)
-        w_broadcasted = self.truncation_trick(w_broadcasted, truncation_cutoff=None, truncation_psi=truncation_psi)
-        image_out = self.synthesis(w_broadcasted)
-
-        image_out.set_shape([None, 3, self.resolutions[-1], self.resolutions[-1]])
-        return image_out

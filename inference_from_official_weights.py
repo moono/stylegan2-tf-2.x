@@ -151,8 +151,8 @@ def check_shape(name_mapper, official_vars):
     return
 
 
-def convert_official_weights():
-    g_clone = load_generator(is_g_clone=True)
+def convert_official_weights(ckpt_dir, use_custom_cuda):
+    g_clone = load_generator(g_params=None, is_g_clone=True, ckpt_dir=None, custom_cuda=use_custom_cuda)
 
     # restore official ones to current implementation
     official_checkpoint = tf.train.latest_checkpoint('./official-pretrained')
@@ -169,15 +169,14 @@ def convert_official_weights():
     tf.compat.v1.train.init_from_checkpoint(official_checkpoint, assignment_map=name_mapper)
 
     # save
-    ckpt_dir = './official-converted'
     ckpt = tf.train.Checkpoint(g_clone=g_clone)
     manager = tf.train.CheckpointManager(ckpt, ckpt_dir, max_to_keep=1)
     manager.save(checkpoint_number=0)
     return
 
 
-def test_generator():
-    g_clone = load_generator(is_g_clone=True, ckpt_dir='./official-converted')
+def test_generator(ckpt_dir, use_custom_cuda):
+    g_clone = load_generator(g_params=None, is_g_clone=True, ckpt_dir=ckpt_dir, custom_cuda=use_custom_cuda)
 
     # test
     seed = 6600
@@ -196,8 +195,10 @@ def test_generator():
 def main():
     allow_memory_growth()
 
-    convert_official_weights()
-    test_generator()
+    ckpt_dir = './official-converted'
+    use_custom_cuda = True
+    convert_official_weights(ckpt_dir, use_custom_cuda)
+    test_generator(ckpt_dir, use_custom_cuda)
     return
 
 
