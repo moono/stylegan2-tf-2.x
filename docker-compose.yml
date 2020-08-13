@@ -21,7 +21,7 @@ services:
               "--tfrecord_dir", "/tfrecord-dir",
               "--train_res", "256",
               "--shuffle_buffer_size", "1000",
-              "--batch_size_per_replica", "32"
+              "--batch_size_per_replica", "16"
     ]
   watching:
     image: 172.20.40.190:5000/tf-2.0.0-gpu-py3:tfds
