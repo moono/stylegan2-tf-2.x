@@ -46,16 +46,21 @@ class Dense(tf.keras.layers.Layer):
         return config
 
 
-class Bias(tf.keras.layers.Layer):
-    def __init__(self, lrmul, **kwargs):
-        super(Bias, self).__init__(**kwargs)
+class BiasAct(tf.keras.layers.Layer):
+    def __init__(self, lrmul, act, **kwargs):
+        super(BiasAct, self).__init__(**kwargs)
+        assert act in ['linear', 'lrelu']
         self.lrmul = lrmul
 
+        if act == 'linear':
+            self.act = tf.keras.layers.Lambda(lambda x: tf.identity(x))
+            self.gain = 1.0
+        else:
+            self.act = tf.keras.layers.LeakyReLU(alpha=0.2)
+            self.gain = np.sqrt(2)
+
     def build(self, input_shape):
-        assert len(input_shape) == 2 or len(input_shape) == 4
-
         self.len2 = True if len(input_shape) == 2 else False
-
         b_init = tf.zeros(shape=(input_shape[1],), dtype=tf.dtypes.float32)
         self.b = tf.Variable(b_init, name='b', trainable=True)
 
@@ -65,13 +70,17 @@ class Bias(tf.keras.layers.Layer):
         if self.len2:
             x = inputs + b
         else:
-            x = inputs + tf.reshape(b, [1, -1, 1, 1])
+            x = inputs + tf.reshape(b, shape=[1, -1, 1, 1])
+        x = self.act(x)
+        x = self.gain * x
         return x
 
     def get_config(self):
-        config = super(Bias, self).get_config()
+        config = super(BiasAct, self).get_config()
         config.update({
             'lrmul': self.lrmul,
+            'gain': self.gain,
+            'len2': self.len2,
         })
         return config
 
@@ -176,7 +185,7 @@ class FusedModConv(tf.keras.layers.Layer):
         self.k = setup_resample_kernel(k=resample_kernel)
 
         self.mod_dense = Dense(self.style_fmaps, gain=1.0, lrmul=1.0, name='mod_dense')
-        self.mod_bias = Bias(lrmul=1.0, name='mod_bias')
+        self.mod_bias = BiasAct(lrmul=1.0, act='linear', name='mod_bias')
 
     def build(self, input_shape):
         x_shape, w_shape = input_shape[0], input_shape[1]

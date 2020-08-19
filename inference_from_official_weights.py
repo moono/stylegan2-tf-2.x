@@ -25,7 +25,7 @@
 # save_path = saver.save(tf.get_default_session(), "./model.ckpt")
 # ##########################################################################################################
 
-
+import os
 import numpy as np
 import tensorflow as tf
 
@@ -157,10 +157,12 @@ def convert_official_weights(ckpt_dir, use_custom_cuda):
     # restore official ones to current implementation
     official_checkpoint = tf.train.latest_checkpoint('./official-pretrained')
     official_vars = tf.train.list_variables(official_checkpoint)
-    print(official_vars)
+    # print(official_vars)
 
     # get name mapper
     name_mapper = variable_name_mapper(g_clone)
+    for name1, tvar in name_mapper.items():
+        print(f'{name1}: {tvar.name}')
 
     # check shape
     check_shape(name_mapper, official_vars)
@@ -188,17 +190,60 @@ def test_generator(ckpt_dir, use_custom_cuda):
     image_out = g_clone([latents, labels], training=False, truncation_psi=0.5)
     image_out = postprocess_images(image_out)
     image_out = image_out.numpy()
-    Image.fromarray(image_out[0], 'RGB').save('seed{}-restored.png'.format(seed))
+
+    out_fn = f'seed{seed}-restored-cuda.png' if use_custom_cuda else f'seed{seed}-restored-ref.png'
+    Image.fromarray(image_out[0], 'RGB').save(out_fn)
+    return
+
+
+def inference_from_each_other(ckpt_dir_base, ckpt_from='cuda', inference_from='ref'):
+    assert ckpt_from != inference_from
+
+    # set proper path and variables
+    use_custom_cuda = True if inference_from == 'cuda' else False
+    ckpt_dir = os.path.join(ckpt_dir_base, 'cuda') if ckpt_from == 'cuda' else os.path.join(ckpt_dir_base, 'ref')
+
+    # create generator
+    g_clone = load_generator(g_params=None, is_g_clone=True, ckpt_dir=ckpt_dir, custom_cuda=use_custom_cuda)
+
+    # test
+    seed = 6600
+    rnd = np.random.RandomState(seed)
+    latents = rnd.randn(1, g_clone.z_dim)
+    labels = rnd.randn(1, g_clone.labels_dim)
+    latents = latents.astype(np.float32)
+    labels = labels.astype(np.float32)
+    image_out = g_clone([latents, labels], training=False, truncation_psi=0.5)
+    image_out = postprocess_images(image_out)
+    image_out = image_out.numpy()
+
+    out_fn = f'seed{seed}-restored-from-{ckpt_from}-to-{inference_from}.png'
+    Image.fromarray(image_out[0], 'RGB').save(out_fn)
     return
 
 
 def main():
     allow_memory_growth()
 
-    ckpt_dir = './official-converted'
+    ckpt_dir_base = './official-converted'
+
+    # phase 1-1: save official weights as cuda version
     use_custom_cuda = True
+    ckpt_dir = os.path.join(ckpt_dir_base, 'cuda') if use_custom_cuda else os.path.join(ckpt_dir_base, 'ref')
     convert_official_weights(ckpt_dir, use_custom_cuda)
     test_generator(ckpt_dir, use_custom_cuda)
+
+    # phase 1-2: save official weights as ref version
+    use_custom_cuda = False
+    ckpt_dir = os.path.join(ckpt_dir_base, 'cuda') if use_custom_cuda else os.path.join(ckpt_dir_base, 'ref')
+    convert_official_weights(ckpt_dir, use_custom_cuda)
+    test_generator(ckpt_dir, use_custom_cuda)
+
+    # phase 2-1: inference cuda saved weight from ref model
+    inference_from_each_other(ckpt_dir_base, ckpt_from='cuda', inference_from='ref')
+
+    # phase 2-1: inference ref saved weight from cuda model
+    inference_from_each_other(ckpt_dir_base, ckpt_from='ref', inference_from='cuda')
     return
 
 

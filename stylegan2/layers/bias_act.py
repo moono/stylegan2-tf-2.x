@@ -3,7 +3,7 @@ import tensorflow as tf
 
 
 # the custom cuda compiled fused_bias_act is not compatible with tf.GradientTape()
-# I think it's because of 2ncd order gradient computation
+# I think it's because of 2nd order gradient computation
 class BiasAct(tf.keras.layers.Layer):
     def __init__(self, lrmul, act, **kwargs):
         super(BiasAct, self).__init__(**kwargs)
