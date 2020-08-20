@@ -6,7 +6,19 @@
 | :---: | :---: |
 | ![official_result] | ![restored_result] |
 
-## current version of training not yet tested!!
+## Training on 256x256
+* batch size 32
+* around 300k steps
+
+| d_loss | g_loss |
+| :---: | :---: |
+| ![256x256_d_loss]| ![256x256_g_loss]|
+
+* result samples
+
+| | | |
+| :---: | :---: | :---: |
+| ![256x256_result_0]| ![256x256_result_1]| ![256x256_result_2]|
 
 ## Etc
 ### Using with pycharm
@@ -23,3 +35,8 @@ moono@moono-ubuntu:~/.local/share/JetBrains/Toolbox/apps/PyCharm-P/ch-0/201.7846
 [generation_tensorboard]: assets/tf-keras-stylegan2-fake-images.PNG
 [official_result]: assets/seed6600-official.png
 [restored_result]: assets/seed6600-restored.png
+[256x256_d_loss]: assets/d_loss_256x256.png
+[256x256_g_loss]: assets/g_loss_256x256.png
+[256x256_result_0]: assets/out_256x256_0.png
+[256x256_result_1]: assets/out_256x256_1.png
+[256x256_result_2]: assets/out_256x256_2.png
