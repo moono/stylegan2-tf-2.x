@@ -1,10 +1,11 @@
 import tensorflow as tf
 
 
-def d_logistic(real_images, generator, discriminator, z_dim, labels_dim):
+def d_logistic(real_images, generator, discriminator, z_dim, labels=None):
     batch_size = tf.shape(real_images)[0]
     z = tf.random.normal(shape=[batch_size, z_dim], dtype=tf.float32)
-    labels = tf.random.normal(shape=[batch_size, labels_dim], dtype=tf.float32)
+    if labels is None:
+        labels = tf.random.normal(shape=[batch_size, 0], dtype=tf.float32)
 
     # forward pass
     fake_images = generator([z, labels], training=True)
@@ -17,10 +18,11 @@ def d_logistic(real_images, generator, discriminator, z_dim, labels_dim):
     return d_loss
 
 
-def d_logistic_r1_reg(real_images, generator, discriminator, z_dim, labels_dim):
+def d_logistic_r1_reg(real_images, generator, discriminator, z_dim, labels=None):
     batch_size = tf.shape(real_images)[0]
     z = tf.random.normal(shape=[batch_size, z_dim], dtype=tf.float32)
-    labels = tf.random.normal(shape=[batch_size, labels_dim], dtype=tf.float32)
+    if labels is None:
+        labels = tf.random.normal(shape=[batch_size, 0], dtype=tf.float32)
 
     # forward pass
     fake_images = generator([z, labels], training=True)
@@ -42,10 +44,11 @@ def d_logistic_r1_reg(real_images, generator, discriminator, z_dim, labels_dim):
     return d_loss, r1_penalty
 
 
-def g_logistic_non_saturating(real_images, generator, discriminator, z_dim, labels_dim):
+def g_logistic_non_saturating(real_images, generator, discriminator, z_dim, labels=None):
     batch_size = tf.shape(real_images)[0]
     z = tf.random.normal(shape=[batch_size, z_dim], dtype=tf.float32)
-    labels = tf.random.normal(shape=[batch_size, labels_dim], dtype=tf.float32)
+    if labels is None:
+        labels = tf.random.normal(shape=[batch_size, 0], dtype=tf.float32)
 
     # forward pass
     fake_images = generator([z, labels], training=True)
@@ -56,15 +59,20 @@ def g_logistic_non_saturating(real_images, generator, discriminator, z_dim, labe
     return g_loss
 
 
-def g_logistic_ns_pathreg(real_images, generator, discriminator, z_dim, labels_dim,
-                          pl_mean, pl_minibatch_shrink, pl_denorm, pl_decay):
+def g_logistic_ns_pathreg(real_images, generator, discriminator, z_dim,
+                          pl_mean, pl_minibatch_shrink, pl_denorm, pl_decay,
+                          labels=None):
     batch_size = tf.shape(real_images)[0]
     z = tf.random.normal(shape=[batch_size, z_dim], dtype=tf.float32)
-    labels = tf.random.normal(shape=[batch_size, labels_dim], dtype=tf.float32)
+    if labels is None:
+        labels = tf.random.normal(shape=[batch_size, 0], dtype=tf.float32)
 
     pl_minibatch = tf.maximum(1, tf.math.floordiv(batch_size, pl_minibatch_shrink))
     pl_z = tf.random.normal(shape=[pl_minibatch, z_dim], dtype=tf.float32)
-    pl_labels = tf.random.normal(shape=[pl_minibatch, labels_dim], dtype=tf.float32)
+    if labels is None:
+        pl_labels = tf.random.normal(shape=[pl_minibatch, 0], dtype=tf.float32)
+    else:
+        pl_labels = labels[:pl_minibatch]
 
     # forward pass
     fake_images, w_broadcasted = generator([z, labels], ret_w_broadcasted=True, training=True)
