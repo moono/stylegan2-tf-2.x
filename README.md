@@ -2,6 +2,8 @@
 * This is tensorflow 2.0 based keras subclassing reimplementation of official [StyleGAN2 Repo](https://github.com/NVlabs/stylegan2)
 
 ## Inference from official weights
+* Please check [how_to_extract_official_weights.md](./how_to_extract_official_weights.md)
+
 | Official repo result | Official weight copied result from this repo |
 | :---: | :---: |
 | ![official_result] | ![restored_result] |
