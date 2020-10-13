@@ -8,7 +8,7 @@ from utils import str_to_bool
 from tf_utils import check_tf_version, allow_memory_growth, split_gpu_for_testing
 from load_models import load_generator, load_discriminator
 from dataset_ffhq import get_ffhq_dataset
-from stylegan2.losses import d_logistic, d_logistic_r1_reg, g_logistic_non_saturating, g_logistic_ns_pathreg
+from losses import d_logistic, d_logistic_r1_reg, g_logistic_non_saturating, g_logistic_ns_pathreg
 
 
 def initiate_models(g_params, d_params, use_custom_cuda):
@@ -111,8 +111,7 @@ class Trainer(object):
 
         with tf.GradientTape() as d_tape:
             # compute losses
-            d_loss = d_logistic(real_images, self.generator, self.discriminator,
-                                self.g_params['z_dim'], self.g_params['labels_dim'])
+            d_loss = d_logistic(real_images, self.generator, self.discriminator, self.g_params['z_dim'])
 
             # scale loss
             d_loss = tf.reduce_sum(d_loss) * self.global_batch_scaler
@@ -127,7 +126,7 @@ class Trainer(object):
         with tf.GradientTape() as d_tape:
             # compute losses
             d_gan_loss, r1_penalty = d_logistic_r1_reg(real_images, self.generator, self.discriminator,
-                                                       self.g_params['z_dim'], self.d_params['labels_dim'])
+                                                       self.g_params['z_dim'])
             r1_penalty = r1_penalty * (0.5 * self.r1_gamma) * self.d_opt['reg_interval']
 
             # scale losses
@@ -146,8 +145,7 @@ class Trainer(object):
 
         with tf.GradientTape() as g_tape:
             # compute losses
-            g_loss = g_logistic_non_saturating(real_images, self.generator, self.discriminator,
-                                               self.g_params['z_dim'], self.g_params['labels_dim'])
+            g_loss = g_logistic_non_saturating(real_images, self.generator, self.discriminator, self.g_params['z_dim'])
 
             # scale loss
             g_loss = tf.reduce_sum(g_loss) * self.global_batch_scaler
@@ -162,9 +160,8 @@ class Trainer(object):
         with tf.GradientTape() as g_tape:
             # compute losses
             g_gan_loss, pl_penalty = g_logistic_ns_pathreg(real_images, self.generator, self.discriminator,
-                                                           self.g_params['z_dim'], self.g_params['labels_dim'],
-                                                           self.pl_mean, self.pl_minibatch_shrink, self.pl_denorm,
-                                                           self.pl_decay)
+                                                           self.g_params['z_dim'], self.pl_mean,
+                                                           self.pl_minibatch_shrink, self.pl_denorm, self.pl_decay)
             pl_penalty = pl_penalty * self.pl_weight * self.g_opt['reg_interval']
 
             # scale loss
