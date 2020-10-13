@@ -22,6 +22,11 @@
 | :---: | :---: | :---: |
 | ![256x256_result_0]| ![256x256_result_1]| ![256x256_result_2]|
 
+## Using custom data
+* Create dataset(tf.data.Dataset) loader which returns 
+  * shape: `[None, 3, res, res]` where `res` is desired image resolution
+  * image value range: `[-1, +1]`
+ 
 ## Etc
 ### Using with pycharm
 * If .bashrc file's paths don't work in pycharm environment (e.g. `nvcc -h`), open pycharm with following
