@@ -50,7 +50,7 @@ def inference(ckpt_dir_base):
     test_generator(ckpt_dir_ref, use_custom_cuda=False, out_fn='from-ref-to-ref.png')
 
     # 4. inference ref saved weight from cuda model
-    test_generator(ckpt_dir_cuda, use_custom_cuda=True, out_fn='from-ref-to-cuda.png')
+    test_generator(ckpt_dir_ref, use_custom_cuda=True, out_fn='from-ref-to-cuda.png')
     return
 
 
