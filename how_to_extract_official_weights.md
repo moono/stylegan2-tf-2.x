@@ -81,5 +81,5 @@ save_path = saver.save(tf.get_default_session(), "./model.ckpt")
 # run following python script to convert model weights
 ~$ python inference_from_official_weights.py
 ``` 
-* Check inference result images `*.py`
+* Check inference result images `*.png`
 * Check converted model weights `./official-converted/cuda` && `./official-converted/ref` 
