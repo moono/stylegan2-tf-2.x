@@ -5,7 +5,7 @@ import tensorflow as tf
 from PIL import Image
 from stylegan2.utils import postprocess_images
 from load_models import load_generator
-from copy_official_weights import convert_official_discriminator_weights, convert_official_generator_weights
+from copy_official_weights import convert_official_weights_together
 
 
 def test_generator(ckpt_dir, use_custom_cuda, out_fn):
@@ -27,18 +27,22 @@ def test_generator(ckpt_dir, use_custom_cuda, out_fn):
     return
 
 
-def saving(ckpt_dir_base):
+def main():
+    from tf_utils import allow_memory_growth
+
+    allow_memory_growth()
+
+    # common variables
+    ckpt_dir_base = './official-converted'
+
+    # saving phase
     for use_custom_cuda in [True, False]:
         ckpt_dir = os.path.join(ckpt_dir_base, 'cuda') if use_custom_cuda else os.path.join(ckpt_dir_base, 'ref')
-        convert_official_discriminator_weights(ckpt_dir, use_custom_cuda)
-        for is_g_clone in [True, False]:
-            convert_official_generator_weights(ckpt_dir, is_g_clone, use_custom_cuda)
-    return
+        convert_official_weights_together(ckpt_dir, use_custom_cuda)
 
-
-def inference(ckpt_dir_base):
-    ckpt_dir_cuda = os.path.join(ckpt_dir_base, 'cuda', 'g_clone')
-    ckpt_dir_ref = os.path.join(ckpt_dir_base, 'ref', 'g_clone')
+    # inference phase
+    ckpt_dir_cuda = os.path.join(ckpt_dir_base, 'cuda')
+    ckpt_dir_ref = os.path.join(ckpt_dir_base, 'ref')
 
     # 1. inference cuda saved weight from cuda model
     test_generator(ckpt_dir_cuda, use_custom_cuda=True, out_fn='from-cuda-to-cuda.png')
@@ -51,22 +55,6 @@ def inference(ckpt_dir_base):
 
     # 4. inference ref saved weight from cuda model
     test_generator(ckpt_dir_ref, use_custom_cuda=True, out_fn='from-ref-to-cuda.png')
-    return
-
-
-def main():
-    from tf_utils import allow_memory_growth
-
-    allow_memory_growth()
-
-    # common variables
-    ckpt_dir_base = './official-converted'
-
-    # saving phase
-    saving(ckpt_dir_base)
-
-    # inference phase
-    inference(ckpt_dir_base)
     return
 
 
