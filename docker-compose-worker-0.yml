@@ -20,7 +20,7 @@ services:
       - "12345:12345"
     working_dir: "/work-dir"
     command: ["python", "-u", "train_multiworker.py",
-              "--allow_memory_growth", "false",
+              "--allow_memory_growth", "true",
               "--use_tf_function", "true",
               "--use_custom_cuda", "true",
               "--model_base_dir", "/model-dir",
