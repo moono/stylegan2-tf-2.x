@@ -374,6 +374,15 @@ def main():
     parser.add_argument('--worker_index', default=0, type=int)
     args = vars(parser.parse_args())
 
+    # prepare distribute strategy
+    cluster_config = load_json_config(args['cluster_config'])
+    os.environ['TF_CONFIG'] = json.dumps({
+        **cluster_config,
+        'task': {'type': 'worker', 'index': args['worker_index']}}
+    )
+    strategy = tf.distribute.experimental.MultiWorkerMirroredStrategy(tf.distribute.experimental.CollectiveCommunication.NCCL)
+    global_batch_size = args['batch_size_per_replica'] * strategy.num_replicas_in_sync
+
     # check tensorflow version
     cur_tf_ver = check_tf_version()
 
@@ -398,15 +407,6 @@ def main():
         'resolutions': train_resolutions,
         'featuremaps': train_featuremaps,
     }
-
-    # prepare distribute strategy
-    cluster_config = load_json_config(args['cluster_config'])
-    os.environ['TF_CONFIG'] = json.dumps({
-        **cluster_config,
-        'task': {'type': 'worker', 'index': args['worker_index']}}
-    )
-    strategy = tf.distribute.experimental.MultiWorkerMirroredStrategy(tf.distribute.experimental.CollectiveCommunication.NCCL)
-    global_batch_size = args['batch_size_per_replica'] * strategy.num_replicas_in_sync
 
     # prepare dataset
     dataset = get_ffhq_dataset(args['tfrecord_dir'], args['train_res'], batch_size=global_batch_size, epochs=None)
