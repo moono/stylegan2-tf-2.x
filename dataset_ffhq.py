@@ -17,7 +17,7 @@ def parse_tfrecord_tf(record):
     image = tf.image.random_flip_left_right(image)
     image = tf.cast(image, tf.dtypes.float32)
     image = image / 127.5 - 1.0
-    image = tf.transpose(image, perm=[2, 0, 1])
+    # image = tf.transpose(image, perm=[2, 0, 1])
     return image
 
 

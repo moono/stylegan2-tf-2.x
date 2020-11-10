@@ -109,6 +109,7 @@ class Trainer(object):
 
     def d_train_step(self, dist_inputs):
         real_images = dist_inputs[0]
+        real_images = tf.transpose(real_images, perm=[0, 3, 1, 2])
 
         with tf.GradientTape() as d_tape:
             # compute losses
@@ -123,6 +124,7 @@ class Trainer(object):
 
     def d_train_step_reg(self, dist_inputs):
         real_images = dist_inputs[0]
+        real_images = tf.transpose(real_images, perm=[0, 3, 1, 2])
 
         with tf.GradientTape() as d_tape:
             # compute losses
@@ -143,6 +145,7 @@ class Trainer(object):
 
     def g_train_step(self, dist_inputs):
         real_images = dist_inputs[0]
+        real_images = tf.transpose(real_images, perm=[0, 3, 1, 2])
 
         with tf.GradientTape() as g_tape:
             # compute losses
@@ -157,6 +160,7 @@ class Trainer(object):
 
     def g_train_step_reg(self, dist_inputs):
         real_images = dist_inputs[0]
+        real_images = tf.transpose(real_images, perm=[0, 3, 1, 2])
 
         with tf.GradientTape() as g_tape:
             # compute losses
