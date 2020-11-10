@@ -1,0 +1,32 @@
+version: '2.3'
+services:
+  training:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile
+      args:
+        USERNAME=moono
+        USER_UID=2004
+    image: 172.20.40.190:5000/stylegan2-tf-2.x:moono
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+    container_name: "moono_gpu_all"
+    volumes:
+      - "/mnt/vision-nas/moono/vision-git-repos/stylegan2-tf-2.x:/work-dir"
+      - "/mnt/vision-nas/moono/trained_models/stylegan2-tf-2.x/multiworker:/model-dir"
+      - "/mnt/vision-nas/data-sets/stylegan/ffhq-dataset/tfrecords/ffhq:/tfrecord-dir:ro"
+    working_dir: "/work-dir"
+    command: ["python", "-u", "train_multiworker.py",
+              "--allow_memory_growth", "false",
+              "--use_tf_function", "true",
+              "--use_custom_cuda", "true",
+              "--model_base_dir", "/model-dir",
+              "--tfrecord_dir", "/tfrecord-dir",
+              "--train_res", "1024",
+              "--shuffle_buffer_size", "1000",
+              "--batch_size_per_replica", "2",
+              "--cluster_config", "/work-dir/cluster_config.json",
+              "--cluster_type", "worker",
+              "--worker_index", "1"
+    ]
