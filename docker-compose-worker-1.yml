@@ -5,8 +5,8 @@ services:
       context: ./docker
       dockerfile: Dockerfile
       args:
-        USERNAME=moono
-        USER_UID=2004
+        USERNAME: moono
+        USER_UID: 2004
     image: 172.20.40.190:5000/stylegan2-tf-2.x:moono
     runtime: nvidia
     environment:
