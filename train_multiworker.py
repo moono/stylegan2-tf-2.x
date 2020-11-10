@@ -405,7 +405,7 @@ def main():
         **cluster_config,
         'task': {'type': 'worker', 'index': args['worker_index']}}
     )
-    strategy = tf.distribute.experimental.MultiWorkerMirroredStrategy()
+    strategy = tf.distribute.experimental.MultiWorkerMirroredStrategy(tf.distribute.experimental.CollectiveCommunication.NCCL)
     global_batch_size = args['batch_size_per_replica'] * strategy.num_replicas_in_sync
 
     # prepare dataset
