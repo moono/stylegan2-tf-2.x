@@ -13,9 +13,11 @@ services:
       - NVIDIA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
     container_name: "moono_gpu_all"
     volumes:
-      - "/mnt/vision-nas/moono/vision-git-repos/stylegan2-tf-2.x:/work-dir"
+      - "/mnt/vision-nas/moono/git-repos/stylegan2-tf-2.x:/work-dir"
       - "/mnt/vision-nas/moono/trained_models/stylegan2-tf-2.x/multiworker:/model-dir"
       - "/mnt/vision-nas/data-sets/stylegan/ffhq-dataset/tfrecords/ffhq:/tfrecord-dir:ro"
+    ports:
+      - "12345:12345"
     working_dir: "/work-dir"
     command: ["python", "-u", "train_multiworker.py",
               "--allow_memory_growth", "false",
