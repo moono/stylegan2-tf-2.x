@@ -29,7 +29,6 @@ services:
               "--shuffle_buffer_size", "1000",
               "--batch_size_per_replica", "2",
               "--cluster_config", "/work-dir/cluster_config.json",
-              "--cluster_type", "chief",
               "--worker_index", "0"
     ]
   watching:

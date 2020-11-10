@@ -371,7 +371,6 @@ def main():
     parser.add_argument('--shuffle_buffer_size', default=1000, type=int)
     parser.add_argument('--batch_size_per_replica', default=4, type=int)
     parser.add_argument('--cluster_config', default='./cluster_config.json', type=str)
-    parser.add_argument('--cluster_type', default='chief', type=str)
     parser.add_argument('--worker_index', default=0, type=int)
     args = vars(parser.parse_args())
 
@@ -404,7 +403,7 @@ def main():
     cluster_config = load_json_config(args['cluster_config'])
     os.environ['TF_CONFIG'] = json.dumps({
         **cluster_config,
-        'task': {'type': args['cluster_type'], 'index': args['worker_index']}}
+        'task': {'type': 'worker', 'index': args['worker_index']}}
     )
     strategy = tf.distribute.experimental.MultiWorkerMirroredStrategy()
     global_batch_size = args['batch_size_per_replica'] * strategy.num_replicas_in_sync
