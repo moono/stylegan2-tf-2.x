@@ -376,12 +376,16 @@ def main():
 
     # prepare distribute strategy
     cluster_config = load_json_config(args['cluster_config'])
-    os.environ['TF_CONFIG'] = json.dumps({
+    tf_config = {
         **cluster_config,
-        'task': {'type': 'worker', 'index': args['worker_index']}}
-    )
-    strategy = tf.distribute.experimental.MultiWorkerMirroredStrategy(tf.distribute.experimental.CollectiveCommunication.NCCL)
-    global_batch_size = args['batch_size_per_replica'] * strategy.num_replicas_in_sync
+        'task': {'type': 'worker', 'index': args['worker_index']}
+    }
+    os.environ['TF_CONFIG'] = json.dumps(tf_config)
+    num_workers = len(tf_config['cluster']['worker'])
+    strategy = tf.distribute.experimental.MultiWorkerMirroredStrategy()
+    global_batch_size = args['batch_size_per_replica'] * strategy.num_replicas_in_sync * num_workers
+
+    print(json.loads(os.environ['TF_CONFIG']))
 
     # check tensorflow version
     cur_tf_ver = check_tf_version()
