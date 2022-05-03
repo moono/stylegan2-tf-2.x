@@ -1,6 +1,9 @@
 FROM tensorflow/tensorflow:2.3.1-gpu
 # FROM tensorflow/tensorflow:2.4.0rc0-gpu
 MAINTAINER moono.song "toilety@gmail.com"
+RUN rm /etc/apt/sources.list.d/cuda.list
+RUN rm /etc/apt/sources.list.d/nvidia-ml.list
+RUN apt-key del 7fa2af80
 RUN apt-get update -y
 RUN apt-get install -y build-essential
 RUN pip install pillow
